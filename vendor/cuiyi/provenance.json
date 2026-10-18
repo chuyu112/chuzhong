@@ -1,0 +1,127 @@
+{
+  "source": "翠易导演台 (local source project)",
+  "baseCommit": "b18b363e821d7e074c089d7287397b54e2a49255",
+  "note": "Copied current working files, including uncommitted changes. Original project left unchanged. Model credentials are read only at local runtime, never copied.",
+  "files": [
+    {
+      "path": "lib/agent-media-tool.ts",
+      "sha256": "af8b472625fae0df9491724cbbc9a607d6d0bd2a12776bbe1ad2663698cc20d7"
+    },
+    {
+      "path": "lib/auto-media.ts",
+      "sha256": "3467581e49918737e1713f68c3cdf6ed4c108502e56c99a8c2a58fec886da984"
+    },
+    {
+      "path": "lib/creative-interview.ts",
+      "sha256": "b55abfd2d63eefb5b5a6b07eb96f6b35215af056742fe50b4a219dfd24e88c31"
+    },
+    {
+      "path": "lib/creative-output-policy.ts",
+      "sha256": "cdab8d0742ded1bc6fb77f73df61da8328628f876e2bbbe71031e5a16f909f92"
+    },
+    {
+      "path": "lib/current-work.ts",
+      "sha256": "8c23489c45a23908eed293e013fb5b208f0dd7644e13d7c52a5e947bb9a91542"
+    },
+    {
+      "path": "lib/jade-proofread-retrieval.mjs",
+      "sha256": "76175abcf4e209fec1f6552c183991278cc2c2537d88cda87f41cfc1cb71de27"
+    },
+    {
+      "path": "lib/knowledge-topic-policy.ts",
+      "sha256": "7632ba7a915e4b957f1b92d783349c4ae229bc2be3db746f4df19bee1d5a1941"
+    },
+    {
+      "path": "lib/media-provider-mapping.ts",
+      "sha256": "faebb0c3519c514089bc5a7872691c8e1e9497c199186bee835a264dbbc68347"
+    },
+    {
+      "path": "lib/media-reference-policy.ts",
+      "sha256": "15c55fb8fde7252da3386d9002413d59f654ac9cccd40be40b10a3133df4fad3"
+    },
+    {
+      "path": "lib/model-catalog.ts",
+      "sha256": "1cfe0cd4c4a99dc0adfa84db92c882895ef5bf1550cad54806a165c8702766e3"
+    },
+    {
+      "path": "lib/moments-planning.ts",
+      "sha256": "e07a52064c0740762580844bf1f97da595fb923cd48be4119305dce1940eab77"
+    },
+    {
+      "path": "lib/poster-artifact.ts",
+      "sha256": "e6c5396f3ad7dc7b6a583b9a163fde4cb0571f2ad7b90c5c81bb331792116328"
+    },
+    {
+      "path": "lib/review-policy.ts",
+      "sha256": "a432c4a78283ad3d9a29a5e6c927567080be249bb8e2af173c7bd48f485bdcfe"
+    },
+    {
+      "path": "lib/seed-audio-prompt.ts",
+      "sha256": "f53e72478714260babde0cff9f951bc33c44db85ba6f1272757032427fe139ca"
+    },
+    {
+      "path": "lib/skill-category.ts",
+      "sha256": "e0fab2f82d1d67b080833a7d4de4f43853e2f1585e1409972f89462520b45ad6"
+    },
+    {
+      "path": "lib/skill-execution-level.ts",
+      "sha256": "083e773b31bb0b06269a509fbde6264d9ab7984e02b545e551f6654db4f44073"
+    },
+    {
+      "path": "lib/text-output-safety.ts",
+      "sha256": "34432acbef0765b334305afcfb7b197e10648e125f61549720b699a409121d45"
+    },
+    {
+      "path": "lib/text-reasoning.ts",
+      "sha256": "58d2e58cfef90e852df83355a3e4bfae16950803eff92cd4b3518abf86b5f79d"
+    },
+    {
+      "path": "runner/biography-generator-prompt.mjs",
+      "sha256": "5c7c92703afbdaa5f3f9cf50fad3b993e854f42b1158262a13f915ad6511a6c7"
+    },
+    {
+      "path": "runner/cuiyi-pi-harness.mjs",
+      "sha256": "d23abcc8baf4b3c503ea39e07138d6a9ab06d6e9db52d5cc0235b2ed59f75de1"
+    },
+    {
+      "path": "runner/kimi-model-config.mjs",
+      "sha256": "7dd95ae12dc129bfb36150b3314b305038a3f706280064075da3eced87f0886c"
+    },
+    {
+      "path": "runner/model-response-status.mjs",
+      "sha256": "f3b843a7f88181c3a8dddda383f4f8ac469928a2f94f52c63597c22be9a2267d"
+    },
+    {
+      "path": "runner/poster-execution.mjs",
+      "sha256": "26d5b9fdcd1bc241974ee0e092f43f21c42930df8fbfd968ea87aefc8afe2899"
+    },
+    {
+      "path": "runner/text-model-inputs.mjs",
+      "sha256": "f9a0db611d0d03f583d2d9012ddd7b124b2fdb4aa3101d1389c8c1fe0b22d141"
+    },
+    {
+      "path": "runner/text-runtime.mjs",
+      "sha256": "03bc97d75e8849ea7f2fd09d555ab83468a1258376305135ef3686925c20920c"
+    },
+    {
+      "path": "lib/knowledge/jade-xiaojie-proofread.json",
+      "sha256": "e7597cb19108cc5cf2f93084f543d1fba21b29028c1f5ab12b694605ce459bcb"
+    },
+    {
+      "path": "workflows/biography-generator/SKILL.md",
+      "sha256": "0bdef6a94d5b52be21401461a2efae310e5501a92f6d27252dcae1ff6a39c518"
+    },
+    {
+      "path": "workflows/biography-generator/references/template-format.md",
+      "sha256": "bd3f29db1831482489d6e528dba1f2a121fe2d35fefeb166fd6fd59ac48daefa"
+    },
+    {
+      "path": "workflows/biography-generator/references/buyer-persona.md",
+      "sha256": "449d6b81020e398a355158fbb3ca4b845b7f2cafc0e29020d3269f5eade6ac45"
+    },
+    {
+      "path": "workflows/biography-generator/references/life-motives.md",
+      "sha256": "534e9bfd1fe4b28efa12fc7cc055fba94809f82aa4e95fb25293241710668e00"
+    }
+  ]
+}

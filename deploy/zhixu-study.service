@@ -1,0 +1,23 @@
+[Unit]
+Description=Zhixu family education
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zhixu-study
+Group=zhixu-study
+WorkingDirectory=/opt/zhixu-study/current/app
+ExecStart=/usr/local/bin/node --env-file=/etc/zhixu-study/runtime.env server/index.mjs
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/zhixu-study
+
+[Install]
+WantedBy=multi-user.target

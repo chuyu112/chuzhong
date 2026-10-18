@@ -1,0 +1,11 @@
+import { cp, mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = fileURLToPath(new URL('..', import.meta.url));
+const source = path.join(root, 'node_modules/katex');
+const target = path.join(root, 'dist/vendor/katex');
+await mkdir(path.join(target, 'contrib'), { recursive: true });
+for (const name of ['katex.mjs', 'katex.min.css', 'fonts']) await cp(path.join(source, 'dist', name), path.join(target, name), { recursive: true });
+await cp(path.join(source, 'dist/contrib/auto-render.mjs'), path.join(target, 'contrib/auto-render.mjs'));
+await cp(path.join(source, 'LICENSE'), path.join(target, 'LICENSE'));
+console.log('本地公式排版资源已准备');
