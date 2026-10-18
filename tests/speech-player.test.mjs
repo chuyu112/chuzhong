@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 
 test('random Doubao voices are used for legacy preferences; pause/resume reuses audio and never falls back', { timeout: 30000 }, async () => {
  const server = createServer((req, res) => {
-  if (req.url === '/') { res.setHeader('content-type', 'text/html'); return res.end('<div id="speech-bar" hidden><button id="speech-stop">停止朗读</button></div><button id="read">朗读</button>'); }
+  if (req.url === '/') { res.setHeader('content-type', 'text/html'); return res.end('<div class="speech-controls"><button id="read">朗读</button><button id="speech-stop" hidden>■</button></div>'); }
   if (!['/speech-player.js', '/core.js', '/voice-options.js'].includes(req.url)) { res.writeHead(404); return res.end(); }
   res.setHeader('content-type', 'text/javascript'); res.end(readFileSync(new URL('../dist' + req.url, import.meta.url)));
  });
@@ -34,16 +34,18 @@ test('random Doubao voices are used for legacy preferences; pause/resume reuses 
    const { createSpeechPlayer } = await import('/speech-player.js');
    window.player = createSpeechPlayer({ toast: text => { window.lastToast = text; } });
    window.voice = { name: '', rate: 1 }; window.states = [];
-   document.querySelector('#read').onclick = () => player.toggle({ text: '先理解等式。朗读版：两边同时减去五。', voice, button: document.querySelector('#read'), onState: s => states.push(s) });
+   document.querySelector('#speech-stop').onclick = () => player.stop();
+   document.querySelector('#read').onclick = () => player.toggle({ text: '先理解等式。朗读版：两边同时减去五。', voice, button: document.querySelector('#read'), stopButton: document.querySelector('#speech-stop'), onState: s => states.push(s) });
   });
   const read = page.locator('#read'), stop = page.locator('#speech-stop');
   await read.click(); await page.waitForFunction(() => states.at(-1) === 'playing');
+  assert.equal(await stop.isVisible(), true);
   assert.deepEqual(requests[0], { text: '两边同时减去五。', voice: 'doubao:random', rate: 1 });
   await read.click(); assert.equal(await page.evaluate(() => states.at(-1)), 'paused');
   await read.click(); assert.equal(await page.evaluate(() => calls.play), 2); assert.equal(requests.length, 1);
-  await stop.click(); assert.equal(await page.locator('#speech-bar').isVisible(), false);
+  await stop.click(); assert.equal(await stop.isVisible(), false);
   await page.evaluate(() => voice.name = 'Microsoft Xiaoxiao Online'); blocked = true;
-  await read.click(); await page.waitForFunction(() => states.at(-1) === 'loading');
+  await read.click(); await page.waitForFunction(() => states.at(-1) === 'loading'); assert.equal(await stop.isVisible(), false);
   while (!release) await new Promise(r => setTimeout(r, 10));
   await read.click(); assert.equal(await page.evaluate(() => states.at(-1)), 'idle');
   release(); blocked = false; await page.waitForTimeout(100);
@@ -52,10 +54,10 @@ test('random Doubao voices are used for legacy preferences; pause/resume reuses 
   await page.evaluate(() => audioItems[0].onended()); assert.equal(await page.evaluate(() => states.at(-1)), 'playing');
   await stop.click(); fail = true;
   await read.click(); await page.waitForFunction(() => window.lastToast?.includes('豆包语音暂时'));
-  assert.equal(await page.evaluate(() => calls.speak), 0); assert.equal(await page.locator('#speech-bar').isVisible(), false);
+  assert.equal(await page.evaluate(() => calls.speak), 0); assert.equal(await stop.isVisible(), false);
   fail = false; await page.evaluate(() => window.blockAutoplay = true);
   await read.click(); await page.waitForFunction(() => states.at(-1) === 'paused');
-  assert.equal(await page.locator('#speech-bar').isVisible(), false);
+  assert.equal(await stop.isVisible(), true);
   assert.doesNotMatch(await page.locator('body').innerText(), /正在朗读/);
   const before = requests.length; await read.click(); await page.waitForFunction(() => states.at(-1) === 'playing');
   assert.equal(requests.length, before); assert.equal(await page.evaluate(() => calls.speak), 0);
