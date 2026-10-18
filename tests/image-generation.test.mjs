@@ -40,7 +40,7 @@ test('Flova image generation runs Image 2.5 in the configured project and stores
   assert.equal(service.configured, true);
   const result = await service.generate('画出过去完成时的事件时间线', 'student-id');
   assert.equal(command.file, '/usr/local/bin/flova');
-  assert.deepEqual(command.args.slice(0, 2), ['run', 'project-123']);
+  assert.deepEqual(command.args.slice(0, 3), ['--verbose', 'run', 'project-123']);
   assert.ok(command.args.includes('--timeout'));
   assert.ok(command.args.includes('--no-color'));
   assert.match(command.args[command.args.indexOf('--content') + 1], /Flova Image 2\.5 Sunburst/);

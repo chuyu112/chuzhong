@@ -31,7 +31,7 @@ function addMessage(role,text,imageUrls,agentName=appearance.agentName(),imageEr
  renderMathInElement(content,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}],trust:false,throwOnError:false,maxExpand:1000,maxSize:20});el.append(node('small','',role==='user'?'我':agentName));
  const urls=(Array.isArray(imageUrls)?imageUrls:imageUrls?[imageUrls]:[]);if(urls.length)appendMessageImages(el,urls,role);
  el.append(content);if(imageJob?.status==='pending'){const status=node('small','image-generation-status','小直正在画这张图…');status.dataset.imageJobId=imageJob.id;el.append(status);}if(imageError)el.append(node('small','image-generation-error',imageError));
- if(role==='assistant'){const controls=node('div','speech-controls'),button=node('button','read-aloud',''),stopButton=node('button','stop-aloud','');button.type=stopButton.type='button';button.innerHTML='<svg class="icon" aria-hidden="true"><use href="#i-volume"></use></svg>';button.setAttribute('aria-label','朗读这条回复');button.title='朗读';stopButton.innerHTML='<svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>';stopButton.setAttribute('aria-label','停止朗读');stopButton.title='停止朗读';stopButton.hidden=true;button.onclick=()=>speak(text,button,{stopButton});stopButton.onclick=()=>speech.stop();controls.append(button,stopButton);el.append(controls);}
+ if(role==='assistant'){const controls=node('div','speech-controls'),button=node('button','read-aloud',''),stopButton=node('button','stop-aloud','');button.type=stopButton.type='button';button.dataset.speechReady='false';button.innerHTML='<svg class="icon" aria-hidden="true"><use href="#i-volume"></use></svg>';button.setAttribute('aria-label','朗读这条回复');button.title='朗读';stopButton.innerHTML='<svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>';stopButton.setAttribute('aria-label','停止朗读');stopButton.title='停止朗读';stopButton.hidden=true;button.onclick=()=>speak(text,button,{stopButton});stopButton.onclick=()=>speech.stop();controls.append(button,stopButton);el.append(controls);}
  $('messages').append(el);$('messages').scrollTop=$('messages').scrollHeight;return el;
 }
 function appendMessageImages(message,urls,role='assistant'){
@@ -41,20 +41,20 @@ function appendMessageImages(message,urls,role='assistant'){
 function showImageJobError(message,error){message.querySelector('.image-generation-status')?.remove();if(error&&!message.querySelector('.image-generation-error'))message.append(node('small','image-generation-error',error));}
 async function watchImageJob(jobId,sessionId,message){
  if(!jobId)return;
- for(let attempt=0;attempt<155;attempt++){
+ for(let attempt=0;attempt<181;attempt++){
   const status=message.querySelector('.image-generation-status');if(!status||status.dataset.imageJobId!==jobId)return;
   try{
    const result=await api(`/api/image-jobs/${encodeURIComponent(jobId)}`,undefined,{signal:AbortSignal.timeout(10000)});
    if(result.status==='completed'&&result.imageUrl){message.querySelector('.image-generation-status')?.remove();appendMessageImages(message,[result.imageUrl]);return;}
    if(result.status==='failed'){showImageJobError(message,result.imageError||'这次配图暂时没生成出来，讲解文字已经保留。');return;}
   }catch{}
-  await new Promise(resolve=>setTimeout(resolve,2000));
+  await new Promise(resolve=>setTimeout(resolve,5000));
  }
  showImageJobError(message,'配图生成时间较长，讲解文字已经保留。');
 }
 function speak(text,button,{preserveCelebration=false,stopButton=null}={}){if(!preserveCelebration)celebration.stop();return speech.toggle({text,voice:appearance.voiceOptions(),button,stopButton,onState:status=>{
  const icon=status==='playing'?'i-pause':status==='paused'?'i-play':'i-volume';button.innerHTML=`<svg class="icon" aria-hidden="true"><use href="#${icon}"></use></svg>`;
- button.setAttribute('aria-label',status==='playing'?'暂停朗读':status==='paused'?'继续朗读':status==='loading'?'取消朗读':'朗读这条回复');button.title=status==='playing'?'暂停朗读':status==='paused'?'继续朗读':'朗读';button.setAttribute('aria-pressed',String(status==='playing'));
+ button.dataset.speechReady=String(status==='playing'||status==='paused'||status==='ready');button.setAttribute('aria-label',status==='playing'?'暂停朗读':status==='paused'?'继续朗读':status==='loading'?'取消朗读':status==='ready'?'重新朗读这条回复':'朗读这条回复');button.title=status==='playing'?'暂停朗读':status==='paused'?'继续朗读':status==='ready'?'重新朗读':'朗读';button.setAttribute('aria-pressed',String(status==='playing'));
 }});}
 function updateChatStatus(){
  const queued=state.chatQueue.length-(state.sending?1:0);

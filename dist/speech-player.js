@@ -4,13 +4,13 @@ import { resolveVoice } from './voice-options.js';
 export function createSpeechPlayer({ toast }) {
  let active=null;
  function notify(item,status){if(item.stopButton)item.stopButton.hidden=status!=='playing'&&status!=='paused';item.onState?.(status);}
- function finish(item){
+ function finish(item,{prepared=false}={}){
   if(active!==item)return;
   active=null;item.controller?.abort();item.audio?.pause();
   if(item.url)URL.revokeObjectURL(item.url);
-  notify(item,'idle');
+  notify(item,prepared?'ready':'idle');
  }
- function stop(){const item=active;if(item)finish(item);window.speechSynthesis?.cancel();}
+ function stop(){const item=active;if(item)finish(item,{prepared:Boolean(item.url)});window.speechSynthesis?.cancel();}
  async function toggle({text,voice,button,stopButton,onState}){
   if(active?.button===button){
    const item=active;
@@ -33,7 +33,7 @@ export function createSpeechPlayer({ toast }) {
     if(!response.ok){const result=await response.json();throw new Error(result.error||'语音暂时无法播放，请稍后再试。');}
     const blob=await response.blob();if(active!==item)return;
     item.url=URL.createObjectURL(blob);item.audio=new Audio(item.url);
-    item.audio.onended=()=>finish(item);item.audio.onerror=()=>failed('音频未能播放，请再点一次朗读。');
+    item.audio.onended=()=>finish(item,{prepared:true});item.audio.onerror=()=>failed('音频未能播放，请再点一次朗读。');
     try{await item.audio.play();}
     catch(error){
      if(active!==item)return;

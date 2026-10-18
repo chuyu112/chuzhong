@@ -52,6 +52,11 @@ test('random Doubao voices are used for legacy preferences; pause/resume reuses 
   assert.equal(await page.evaluate(() => calls.play), 2); assert.equal(requests[1].voice, 'doubao:random');
   await read.click(); await page.waitForFunction(() => states.at(-1) === 'playing');
   await page.evaluate(() => audioItems[0].onended()); assert.equal(await page.evaluate(() => states.at(-1)), 'playing');
+  await page.evaluate(() => audioItems.at(-1).onended());
+  assert.equal(await page.evaluate(() => states.at(-1)), 'ready');
+  const beforeReplay = requests.length;
+  await read.click(); await page.waitForFunction(() => states.at(-1) === 'playing');
+  assert.equal(requests.length, beforeReplay + 1);
   await stop.click(); fail = true;
   await read.click(); await page.waitForFunction(() => window.lastToast?.includes('豆包语音暂时'));
   assert.equal(await page.evaluate(() => calls.speak), 0); assert.equal(await stop.isVisible(), false);

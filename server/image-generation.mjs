@@ -48,7 +48,7 @@ export function createImageGenerationService({
   cliPath = 'flova',
   fetchImpl = fetch,
   execFileImpl = execFileAsync,
-  timeoutMs = 300000,
+  timeoutMs = 900000,
 } = {}) {
   let queue = Promise.resolve();
   const serialize = task => {
@@ -73,7 +73,7 @@ export function createImageGenerationService({
             `Learning image prompt:\n${prompt.trim()}`,
           ].join('\n\n');
           const { stdout } = await execFileImpl(cliPath, [
-            'run', projectId, '--content', content,
+            '--verbose', 'run', projectId, '--content', content,
             '--timeout', String(Math.max(1, Math.ceil(timeoutMs / 1000))), '--no-color',
           ], {
             encoding: 'utf8', maxBuffer: 6 * 1024 * 1024,
