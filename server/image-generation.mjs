@@ -48,7 +48,7 @@ export function createImageGenerationService({
   cliPath = 'flova',
   fetchImpl = fetch,
   execFileImpl = execFileAsync,
-  timeoutMs = 900000,
+  timeoutMs = 180000,
 } = {}) {
   let queue = Promise.resolve();
   const serialize = task => {

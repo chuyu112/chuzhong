@@ -41,16 +41,15 @@ function appendMessageImages(message,urls,role='assistant'){
 function showImageJobError(message,error){message.querySelector('.image-generation-status')?.remove();if(error&&!message.querySelector('.image-generation-error'))message.append(node('small','image-generation-error',error));}
 async function watchImageJob(jobId,sessionId,message){
  if(!jobId)return;
- for(let attempt=0;attempt<181;attempt++){
+ while(message.isConnected&&state.sessionId===sessionId){
   const status=message.querySelector('.image-generation-status');if(!status||status.dataset.imageJobId!==jobId)return;
   try{
    const result=await api(`/api/image-jobs/${encodeURIComponent(jobId)}`,undefined,{signal:AbortSignal.timeout(10000)});
    if(result.status==='completed'&&result.imageUrl){message.querySelector('.image-generation-status')?.remove();appendMessageImages(message,[result.imageUrl]);return;}
    if(result.status==='failed'){showImageJobError(message,result.imageError||'这次配图暂时没生成出来，讲解文字已经保留。');return;}
   }catch{}
-  await new Promise(resolve=>setTimeout(resolve,5000));
+  await new Promise(resolve=>setTimeout(resolve,2000));
  }
- showImageJobError(message,'配图生成时间较长，讲解文字已经保留。');
 }
 function speak(text,button,{preserveCelebration=false,stopButton=null}={}){if(!preserveCelebration)celebration.stop();return speech.toggle({text,voice:appearance.voiceOptions(),button,stopButton,onState:status=>{
  const icon=status==='playing'?'i-pause':status==='paused'?'i-play':'i-volume';button.innerHTML=`<svg class="icon" aria-hidden="true"><use href="#${icon}"></use></svg>`;
