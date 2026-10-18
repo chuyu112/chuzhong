@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTutor, canReveal } from '../server/tutor.mjs';
+import { runTutor, canReveal, tutorPolicy } from '../server/tutor.mjs';
 import { buildStudentMemory } from '../server/memory.mjs';
 
 test('Pi receives durable learning evidence and preserves hint-first teaching', async () => {
@@ -18,4 +18,13 @@ test('Pi receives durable learning evidence and preserves hint-first teaching', 
   assert.equal(canReveal({ hints: 0 }, '我算了一步'), false);
   assert.equal(canReveal({ hints: 1 }, ''), false);
   assert.equal(canReveal({ hints: 1 }, '先找对应边'), true);
+});
+
+test('tutor expands classic-text exercises with context, memory visuals, and the original at the end', () => {
+  const policy = tutorPolicy();
+  assert.match(policy, /先完整完成孩子明确提出的任务/);
+  assert.match(policy, /建筑的历史、作者是谁、写作背景、相关人物故事/);
+  assert.match(policy, /应用具备真实生图能力时直接生成图/);
+  assert.match(policy, /最后附上作品完整原文供核对/);
+  assert.match(policy, /原文放在回复末尾/);
 });
