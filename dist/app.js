@@ -29,14 +29,22 @@ function addMessage(role,text,imageUrls,agentName=appearance.agentName(),imageEr
  $('chat-welcome')?.removeAttribute('id');const el=node('div',`message ${role}`),content=node('div','message-content');
  for(const part of text.split(/(\*\*[^*]+\*\*)/g))content.append(part.startsWith('**')&&part.endsWith('**')?node('strong','',part.slice(2,-2)):document.createTextNode(part));
  renderMathInElement(content,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}],trust:false,throwOnError:false,maxExpand:1000,maxSize:20});el.append(node('small','',role==='user'?'我':agentName));
- const urls=(Array.isArray(imageUrls)?imageUrls:imageUrls?[imageUrls]:[]);if(urls.length)appendMessageImages(el,urls,role);
- el.append(content);if(imageJob?.status==='pending'){const status=node('small','image-generation-status','小直正在画这张图…');status.dataset.imageJobId=imageJob.id;el.append(status);}if(imageError)el.append(node('small','image-generation-error',imageError));
+ el.append(content);
+ const urls=(Array.isArray(imageUrls)?imageUrls:imageUrls?[imageUrls]:[]);if(urls.length&&role!=='assistant')appendMessageImages(el,urls,role);
+ if(imageJob?.status==='pending'){const status=node('small','image-generation-status','小直正在画这张图…');status.dataset.imageJobId=imageJob.id;el.append(status);}if(imageError)el.append(node('small','image-generation-error',imageError));
  if(role==='assistant'){const controls=node('div','speech-controls'),button=node('button','read-aloud',''),stopButton=node('button','stop-aloud','');button.type=stopButton.type='button';button.dataset.speechReady='false';button.innerHTML='<svg class="icon" aria-hidden="true"><use href="#i-volume"></use></svg>';button.setAttribute('aria-label','朗读这条回复');button.title='朗读';stopButton.innerHTML='<svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>';stopButton.setAttribute('aria-label','停止朗读');stopButton.title='停止朗读';stopButton.hidden=true;button.onclick=()=>speak(text,button,{stopButton});stopButton.onclick=()=>speech.stop();controls.append(button,stopButton);el.append(controls);}
+ if(urls.length&&role==='assistant')appendMessageImages(el,urls,role);
  $('messages').append(el);$('messages').scrollTop=$('messages').scrollHeight;return el;
 }
 function appendMessageImages(message,urls,role='assistant'){
- const gallery=node('div','chat-attachments');urls.forEach((url,index)=>{const img=node('img','chat-attachment');img.src=url;img.alt=role==='user'?`作业附件第 ${index+1} 张`:'小直生成的学习图解';gallery.append(img);});
- const content=message.querySelector('.message-content');message.insertBefore(gallery,content||null);$('messages').scrollTop=$('messages').scrollHeight;
+ const scroller=$('messages'),scrollTop=scroller.scrollTop;
+ const followImage=!message.isConnected||scroller.scrollHeight-scroller.clientHeight-scrollTop<80;
+ const generated=role==='assistant',gallery=node('div',`chat-attachments${generated?' generated-illustration':''}`);
+ urls.forEach((url,index)=>{const img=node('img','chat-attachment');img.alt=role==='user'?`作业附件第 ${index+1} 张`:'小直生成的学习图解';
+  if(generated)img.addEventListener('load',()=>{if(followImage&&message.isConnected&&message===scroller.lastElementChild&&scroller.scrollTop>=scrollTop-8)gallery.scrollIntoView({block:'nearest',behavior:'smooth'});},{once:true});
+  img.src=url;gallery.append(img);
+ });
+ const content=message.querySelector('.message-content');if(generated)message.append(gallery);else message.insertBefore(gallery,content||null);
 }
 function showImageJobError(message,error){message.querySelector('.image-generation-status')?.remove();if(error&&!message.querySelector('.image-generation-error'))message.append(node('small','image-generation-error',error));}
 async function watchImageJob(jobId,sessionId,message){
