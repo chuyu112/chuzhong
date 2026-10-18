@@ -6,7 +6,7 @@ import { setupFamily } from './family-ui.js';
 import { startAccount } from './account-ui.js';
 import renderMathInElement from './vendor/katex/contrib/auto-render.mjs';
 const $ = id => document.getElementById(id);
-const state = { config:null,learning:{questions:[],attempts:[]},memory:null,papers:[],question:null,sessionId:crypto.randomUUID(),user:null,chatQuestionId:null,image:null,sending:false,chatQueue:[] };
+const state = { config:null,learning:{questions:[],attempts:[]},memory:null,papers:[],question:null,sessionId:crypto.randomUUID(),user:null,chatQuestionId:null,images:[],sending:false,chatQueue:[] };
 let toastTimer;
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5000);}
 async function api(url,data,options={}){const response=await fetch(url,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'content-type':'application/json'},body:data===undefined?undefined:JSON.stringify(data),...options});const result=await response.json();if(!response.ok){if(response.status===401||result.passwordChangeRequired)location.reload();throw new Error(result.error||'请求失败');}return result;}
@@ -22,10 +22,10 @@ $('close-practice').onclick=()=>$('practice-dialog').close();
 $('practice-hint').onclick=action(async()=>{const result=await api('/api/hints',{questionId:state.question.id});$('practice-hints').append(node('p','',result.hint));});
 $('practice-form').onsubmit=action(async event=>{event.preventDefault();celebration.prepare();const result=await api('/api/attempts',{questionId:state.question.id,answer:$('practice-answer').value});$('practice-result').textContent=(result.encouragement||(result.correct?'答对啦！':'我们再一起看看这一步。'))+'\n\n'+(result.solution||'这道题暂未录入参考讲解，可以请老师一起核对。');$('make-variant').hidden=!state.question.template;state.learning.attempts.push(result);celebration.show(result.feedback);await refreshMemory();});
 $('make-variant').onclick=action(async()=>{const q=await api('/api/variants',{questionId:state.question.id});state.learning.questions.push(q);openPractice(q);});
-function freshChat(){speech.stop();celebration.stop();$('chat-input').value='';state.sessionId=crypto.randomUUID();localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);state.chatQuestionId=null;state.image=null;$('student-attempt').value='';$('photo-preview').replaceChildren();$('photo-preview').hidden=true;$('messages').replaceChildren();showChatWelcome();}
+function freshChat(){speech.stop();celebration.stop();$('chat-input').value='';state.sessionId=crypto.randomUUID();localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);state.chatQuestionId=null;state.images=[];$('student-attempt').value='';$('photo-preview').replaceChildren();$('photo-preview').hidden=true;$('messages').replaceChildren();showChatWelcome();}
 $('new-chat').onclick=$('new-chat-header').onclick=()=>{if(state.sending)return toast('请等这一轮讲解完成。');freshChat();page('tutor');refreshConversations().catch(e=>toast(e.message));$('chat-input').focus();};
 $('ask-about-practice').onclick=()=>{if(state.sending)return toast('请等这一轮讲解完成。');const q=state.question;$('practice-dialog').close();freshChat();state.chatQuestionId=q.id;$('chat-input').value=`请先帮我理解这道题，给我一个提示：\n${q.stem}`;page('tutor');};
-function addMessage(role,text,imageUrl,agentName=appearance.agentName()){$('chat-welcome')?.removeAttribute('id');const el=node('div',`message ${role}`),content=node('div');for(const part of text.split(/(\*\*[^*]+\*\*)/g))content.append(part.startsWith('**')&&part.endsWith('**')?node('strong','',part.slice(2,-2)):document.createTextNode(part));renderMathInElement(content,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}],trust:false,throwOnError:false,maxExpand:1000,maxSize:20});el.append(node('small','',role==='user'?'我':agentName));if(imageUrl){const img=node('img','chat-attachment');img.src=imageUrl;img.alt='发送的题目照片';el.append(img);}el.append(content);if(role==='assistant'){const button=node('button','read-aloud','🔊 朗读');button.type='button';button.setAttribute('aria-label','朗读这条回复');button.onclick=()=>speak(text,button);el.append(button);}$('messages').append(el);$('messages').scrollTop=$('messages').scrollHeight;return el;}
+function addMessage(role,text,imageUrls,agentName=appearance.agentName(),imageError=''){$('chat-welcome')?.removeAttribute('id');const el=node('div',`message ${role}`),content=node('div');for(const part of text.split(/(\*\*[^*]+\*\*)/g))content.append(part.startsWith('**')&&part.endsWith('**')?node('strong','',part.slice(2,-2)):document.createTextNode(part));renderMathInElement(content,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}],trust:false,throwOnError:false,maxExpand:1000,maxSize:20});el.append(node('small','',role==='user'?'我':agentName));const urls=(Array.isArray(imageUrls)?imageUrls:imageUrls?[imageUrls]:[]);if(urls.length){const gallery=node('div','chat-attachments');urls.forEach((url,index)=>{const img=node('img','chat-attachment');img.src=url;img.alt=role==='user'?`作业附件第 ${index+1} 张`:'小直生成的学习图解';gallery.append(img);});el.append(gallery);}el.append(content);if(imageError)el.append(node('small','image-generation-error',imageError));if(role==='assistant'){const button=node('button','read-aloud','🔊 朗读');button.type='button';button.setAttribute('aria-label','朗读这条回复');button.onclick=()=>speak(text,button);el.append(button);}$('messages').append(el);$('messages').scrollTop=$('messages').scrollHeight;return el;}
 function speak(text,button){celebration.stop();return speech.toggle({text,voice:appearance.voiceOptions(),button,onState:status=>{
  button.textContent=status==='idle'?'🔊 朗读':status==='loading'?'■ 取消 · 准备中':status==='paused'?'▶ 继续朗读':'⏸ 暂停朗读';
  button.setAttribute('aria-label',status==='idle'?'朗读这条回复':status==='paused'?'继续朗读':status==='loading'?'取消朗读':'暂停朗读');button.setAttribute('aria-pressed',String(status!=='idle'));
@@ -37,18 +37,18 @@ function updateChatStatus(){
  $('send-chat').disabled=false;
 }
 async function sendChat({text,reveal=false,media=''}={}){
- const prompt=(text||$('chat-input').value||(state.image?'请读清楚这张题目照片，先讲解思路，给我第一步提示。':'')).trim();
+ const prompt=(text||$('chat-input').value||(state.images.length?'请按顺序读清楚这组题目照片，先讲解思路，给我第一步提示。':'')).trim();
  if(!prompt)return;
  if(state.chatQueue.length>=6)return toast('追问已经收到了好几条，先等小直回答一下。');
  const modelId=$('model-select').value,attempt=$('student-attempt').value.trim();
  if(reveal&&attempt.length<2)return toast('请先写下你尝试的步骤。');
- if(state.image&&!state.config.models.find(m=>m.id===modelId)?.vision)return toast('请先选择支持识图的模型。');
+ if(state.images.length&&!state.config.models.find(m=>m.id===modelId)?.vision)return toast('请先选择支持识图的模型。');
  celebration.prepare();
- const payload={text:prompt,sessionId:state.sessionId,questionId:state.chatQuestionId,modelId,image:state.image,reveal,attempt,media};
+ const payload={text:prompt,sessionId:state.sessionId,questionId:state.chatQuestionId,modelId,images:state.images.slice(),reveal,attempt,media};
  const agentName=appearance.agentName();
- addMessage('user',prompt,payload.image);
+ addMessage('user',prompt,payload.images);
  if(!text)$('chat-input').value='';
- state.image=null;renderPhotoPreview();
+ state.images=[];renderPhotoPreview();
  const pending=addMessage('assistant',state.sending?'收到这条追问了，稍后接着讲。':`${agentName}正在思考…`,null,agentName);
  pending.classList.add('message-pending');if(state.sending)pending.classList.add('message-queued');
  pending.setAttribute('role','status');pending.querySelector('button')?.remove();
@@ -63,9 +63,9 @@ async function processChatQueue(){
    const {payload,agentName,pending}=state.chatQueue[0];
    pending.classList.remove('message-queued');pending.querySelector('div').textContent=`${agentName}正在思考…`;
    try{
-    const result=await api('/api/chat',payload,{signal:AbortSignal.timeout(250000)});
+    const result=await api('/api/chat',payload,{signal:AbortSignal.timeout(290000)});
     state.sessionId=result.sessionId;localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);
-    const reply=addMessage('assistant',result.text,null,result.agentName||agentName);pending.replaceWith(reply);
+    const reply=addMessage('assistant',result.text,result.imageUrl||null,result.agentName||agentName,result.imageError||'');pending.replaceWith(reply);
     celebration.show(result.feedback);
    }catch(error){
     const message=error.name==='TimeoutError'?'等待回复超时，请稍后重试。':error.message;
@@ -73,8 +73,8 @@ async function processChatQueue(){
     failed.querySelector('button')?.remove();
     const restore=node('button','','放回输入框');restore.type='button';
     restore.onclick=()=>{
-     if($('chat-input').value.trim()||state.image)return toast('输入框里还有未发送的内容，请先处理这份草稿。');
-     $('chat-input').value=payload.text;state.image=payload.image;renderPhotoPreview();$('chat-input').focus();
+     if($('chat-input').value.trim()||state.images.length)return toast('输入框里还有未发送的内容，请先处理这份草稿。');
+     $('chat-input').value=payload.text;state.images=payload.images.slice();renderPhotoPreview();$('chat-input').focus();
     };
     failed.append(restore);toast(message);
    }finally{state.chatQueue.shift();updateChatStatus();}
@@ -90,25 +90,26 @@ $('media-prompt').onclick=action(()=>{$('media-dialog').close();return sendChat(
 function choosePhoto(){$('photo-input').click();}
 $('photo-chat').onclick=choosePhoto;
 function renderPhotoPreview(){
- $('photo-preview').replaceChildren();$('photo-preview').hidden=!state.image;if(!state.image)return;
- const img=node('img');img.src=state.image;img.alt='准备发送的题目图片';
- const remove=node('button','','移除');remove.type='button';remove.onclick=()=>{state.image=null;renderPhotoPreview();};
- $('photo-preview').append(img,remove);
+ $('photo-preview').replaceChildren();$('photo-preview').hidden=!state.images.length;if(!state.images.length)return;
+ state.images.forEach((image,index)=>{const item=node('div','photo-preview-item'),img=node('img');img.src=image;img.alt=`准备发送的作业图片第 ${index+1} 张`;const label=node('small','',`${index+1}/${state.images.length}`);const remove=node('button','','移除');remove.type='button';remove.setAttribute('aria-label',`移除第 ${index+1} 张图片`);remove.onclick=()=>{state.images.splice(index,1);renderPhotoPreview();};item.append(img,label,remove);$('photo-preview').append(item);});
 }
 async function attachPhoto(file){
- if(!file||!file.type.startsWith('image/'))throw new Error('请上传图片，支持 JPG、PNG、WebP 等格式。');
+ if(!file||!file.type.startsWith('image/'))throw new Error('请上传图片，支持常见图片格式。');
+ if(state.images.length>=9)throw new Error('一条消息最多附 9 张图片；整套试卷可以分批发送。');
  if(file.size>25*1024*1024)throw new Error('请使用 25 MB 以内的图片。');
  const bitmap=await createImageBitmap(file),ratio=Math.min(1,1800/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');
  canvas.width=Math.max(1,Math.round(bitmap.width*ratio));canvas.height=Math.max(1,Math.round(bitmap.height*ratio));canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
- state.image=canvas.toDataURL('image/jpeg',.88);renderPhotoPreview();
+ const image=canvas.toDataURL('image/jpeg',.88),bytes=Math.ceil((image.length-image.indexOf(',')-1)*.75);if(bytes>10*1024*1024)throw new Error('压缩后这张图片仍超过 10 MB，请换一张较清晰的小图。');const total=state.images.reduce((sum,value)=>sum+Math.ceil((value.length-value.indexOf(',')-1)*.75),0);if(total+bytes>30*1024*1024)throw new Error('这批图片总大小不能超过 30 MB，请分批发送。');state.images.push(image);renderPhotoPreview();
  const model=state.config.models.find(m=>m.id===$('model-select').value);if(!model?.vision){const vision=state.config.models.find(m=>m.configured&&m.vision);if(vision){$('model-select').value=vision.id;$('model-select').dispatchEvent(new Event('change'));toast(`图片已准备好，使用 ${vision.label} 识图讲解。`);}else toast('当前没有可用的识图模型。');}
  $('chat-input').focus();
 }
-for(const id of ['photo-input','camera-input'])$(id).onchange=action(async event=>{const file=event.target.files[0];event.target.value='';if(file)await attachPhoto(file);});
-$('chat-input').addEventListener('paste',event=>{const file=[...(event.clipboardData?.files||[])].find(f=>f.type.startsWith('image/'));if(file){event.preventDefault();attachPhoto(file).catch(e=>toast(e.message));}});
+function attachPhotos(files){return (async()=>{for(const file of files){try{await attachPhoto(file);}catch(error){toast(error.message);break;}}})();}
+$('photo-input').onchange=action(async event=>{const files=[...event.target.files];event.target.value='';await attachPhotos(files);});
+$('camera-input').onchange=action(async event=>{const file=event.target.files[0];event.target.value='';if(file)await attachPhoto(file);});
+$('chat-input').addEventListener('paste',event=>{const files=[...(event.clipboardData?.files||[])].filter(f=>f.type.startsWith('image/'));if(files.length){event.preventDefault();attachPhotos(files).catch(e=>toast(e.message));}});
 $('chat-form').addEventListener('dragover',event=>{event.preventDefault();$('chat-form').classList.add('dragging');});
 $('chat-form').addEventListener('dragleave',()=>$('chat-form').classList.remove('dragging'));
-$('chat-form').addEventListener('drop',event=>{event.preventDefault();$('chat-form').classList.remove('dragging');const files=[...(event.dataTransfer?.files||[])];if(files[0])attachPhoto(files[0]).catch(e=>toast(e.message));if(files.length>1)toast('每条消息先发一张图片，其余可以接着发。');});
+$('chat-form').addEventListener('drop',event=>{event.preventDefault();$('chat-form').classList.remove('dragging');const files=[...(event.dataTransfer?.files||[])].filter(f=>f.type.startsWith('image/'));if(files.length)attachPhotos(files).catch(e=>toast(e.message));});
 $('chat-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&!matchMedia('(pointer:coarse)').matches){event.preventDefault();$('chat-form').requestSubmit();}});
 let cameraStream=null;
 function stopCamera(){cameraStream?.getTracks().forEach(track=>track.stop());cameraStream=null;$('camera-video').srcObject=null;}
@@ -123,7 +124,7 @@ function renderPapers(){const subject=$('subject-filter').value,year=$('year-fil
 async function refreshPapers(){const result=await api('/api/papers');state.papers=result.papers;$('nav-paper-count').textContent=String(result.counts.downloaded||0);$('paper-stats').replaceChildren(statCard(result.counts.downloaded||0,'本地整卷 PDF'),statCard(new Set(state.papers.filter(p=>p.status==='downloaded').map(p=>p.subject)).size,'已保存科目'),statCard(result.counts.print_only||0,'仅打印来源记录'));for(const [id,values]of [['subject-filter',[...new Set(state.papers.map(p=>p.subject))]],['year-filter',[...new Set(state.papers.map(p=>p.year))].sort().reverse()]]){const select=$(id),old=select.value;select.replaceChildren(new Option(id==='subject-filter'?'全部科目':'全部年份',''),...values.map(v=>new Option(v,v)));select.value=old;}renderPapers();}
 ['subject-filter','year-filter'].forEach(id=>$(id).onchange=renderPapers);$('paper-search').oninput=renderPapers;$('refresh-papers').onclick=action(refreshPapers);
 $('export-data').onclick=action(async()=>{const data=await api('/api/export');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download=`知序学习档案-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
-async function init(){$('today-date').textContent=new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric',weekday:'long',timeZone:'Asia/Shanghai'}).format(new Date());state.config=await api('/api/config');const select=$('model-select');select.replaceChildren(...state.config.models.map(m=>new Option(`${m.label}${m.vision?' · 识图':''}${m.configured?'':' · 未配置'}`,m.id)));const preferred=localStorage.getItem('zhixu-model')||state.config.defaultModel;select.value=state.config.models.find(m=>m.id===preferred&&m.configured)?.id||state.config.models.find(m=>m.configured)?.id||preferred;select.onchange=()=>{localStorage.setItem('zhixu-model',select.value);$('selected-model-label').textContent=state.config.models.find(m=>m.id===select.value)?.label||'选择模型';$('model-status').textContent=state.config.models.find(m=>m.id===select.value)?.configured?'可用于当前讲解':'这个模型还需要在家庭设置中配置';};select.onchange();await refreshLearning();await refreshMemory();const session=await api(`/api/sessions/${state.sessionId}`);state.chatQuestionId=session.questionId||null;$('messages').replaceChildren();if(session.messages.some(m=>m.role==='user'))session.messages.forEach(m=>addMessage(m.role,m.content,m.imageUrl,m.agentName||DEFAULT_AGENT_NAME));else showChatWelcome();localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);}
+async function init(){$('today-date').textContent=new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric',weekday:'long',timeZone:'Asia/Shanghai'}).format(new Date());state.config=await api('/api/config');const select=$('model-select');select.replaceChildren(...state.config.models.map(m=>new Option(`${m.label}${m.vision?' · 识图':''}${m.configured?'':' · 未配置'}`,m.id)));const preferred=localStorage.getItem('zhixu-model')||state.config.defaultModel;select.value=state.config.models.find(m=>m.id===preferred&&m.configured)?.id||state.config.models.find(m=>m.configured)?.id||preferred;select.onchange=()=>{localStorage.setItem('zhixu-model',select.value);$('selected-model-label').textContent=state.config.models.find(m=>m.id===select.value)?.label||'选择模型';$('model-status').textContent=state.config.models.find(m=>m.id===select.value)?.configured?'可用于当前讲解':'这个模型还需要在家庭设置中配置';};select.onchange();await refreshLearning();await refreshMemory();const session=await api(`/api/sessions/${state.sessionId}`);state.chatQuestionId=session.questionId||null;$('messages').replaceChildren();if(session.messages.some(m=>m.role==='user'))session.messages.forEach(m=>addMessage(m.role,m.content,m.imageUrls||m.imageUrl,m.agentName||DEFAULT_AGENT_NAME,m.imageError||''));else showChatWelcome();localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);}
 const family=setupFamily({api,action,node,toast});
 const speech=createSpeechPlayer({toast});
 const appearance=setupAppearance({api,toast,speech,onAgentName:name=>{
@@ -142,4 +143,4 @@ function closeNavigation(){document.body.classList.remove('navigation-open');$('
 $('nav-toggle').onclick=()=>{const open=!document.body.classList.contains('navigation-open');document.body.classList.toggle('navigation-open',open);$('sidebar-scrim').hidden=!open;$('nav-toggle').setAttribute('aria-expanded',String(open));};$('sidebar-scrim').onclick=closeNavigation;document.addEventListener('keydown',e=>{if(e.key==='Escape')closeNavigation();});
 $('open-review').onclick=()=>{$('review-dialog').showModal();document.querySelector('.tutor-settings').open=false;};$('review-close').onclick=()=>$('review-dialog').close();
 $('open-media').onclick=()=>{$('media-dialog').showModal();document.querySelector('.tutor-settings').open=false;};$('media-close').onclick=()=>$('media-dialog').close();
-async function refreshConversations(){const result=await api('/api/sessions');$('conversation-list').replaceChildren();for(const session of result.sessions){const button=node('button','conversation-item'+(session.id===state.sessionId?' active':''),session.title);button.title=session.title;button.onclick=action(async()=>{if(state.sending)return toast('请等这一轮讲解完成。');const saved=await api('/api/sessions/'+session.id);state.sessionId=session.id;state.chatQuestionId=saved.questionId||null;state.image=null;$('photo-preview').hidden=true;$('chat-input').value='';$('student-attempt').value='';$('messages').replaceChildren();saved.messages.forEach(m=>addMessage(m.role,m.content,m.imageUrl,m.agentName||DEFAULT_AGENT_NAME));localStorage.setItem('zhixu-session-'+state.user.id,session.id);page('tutor');await refreshConversations();});$('conversation-list').append(button);}if(!result.sessions.length)$('conversation-list').append(node('p','empty-history','聊过的问题，会记在这里。'));}
+async function refreshConversations(){const result=await api('/api/sessions');$('conversation-list').replaceChildren();for(const session of result.sessions){const button=node('button','conversation-item'+(session.id===state.sessionId?' active':''),session.title);button.title=session.title;button.onclick=action(async()=>{if(state.sending)return toast('请等这一轮讲解完成。');const saved=await api('/api/sessions/'+session.id);state.sessionId=session.id;state.chatQuestionId=saved.questionId||null;state.images=[];$('photo-preview').replaceChildren();$('photo-preview').hidden=true;$('chat-input').value='';$('student-attempt').value='';$('messages').replaceChildren();saved.messages.forEach(m=>addMessage(m.role,m.content,m.imageUrls||m.imageUrl,m.agentName||DEFAULT_AGENT_NAME,m.imageError||''));localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);page('tutor');await refreshConversations();});$('conversation-list').append(button);}if(!result.sessions.length)$('conversation-list').append(node('p','empty-history','聊过的问题，会记在这里。'));}

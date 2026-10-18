@@ -60,20 +60,19 @@ test('chat home sends homework pictures, restores history, and lets linked paren
   const reply='先理解等式的平衡：**两边同时减去 5**，能把含有 x 的项单独留下。你试着填写：\\[3x=\\underline{\\quad}\\]';
   await page.route('**/api/chat',async route=>{
    captured=route.request().postDataJSON();requestCount++;receivedRequest();await replyGate;
-   const bytes=Buffer.from(captured.image.split(',')[1],'base64'),filename=createHash('sha256').update(bytes).digest('hex');
-   await mkdir(path.join(directory,'homework',student.id),{recursive:true});await writeFile(path.join(directory,'homework',student.id,filename),bytes);
-   const at=new Date().toISOString(),imageRef={filename,mimeType:'image/jpeg'};
-   const session={id:captured.sessionId,hints:1,status:'completed',imageRef,messages:[{role:'user',content:captured.text,at,imageRef},{role:'assistant',content:reply,agentName:'小星',at}]};
+   const imageRefs=[];await mkdir(path.join(directory,'homework',student.id),{recursive:true});for(const image of captured.images){const bytes=Buffer.from(image.split(',')[1],'base64'),filename=createHash('sha256').update(bytes).digest('hex');await writeFile(path.join(directory,'homework',student.id,filename),bytes);imageRefs.push({filename,mimeType:'image/jpeg'});}
+   const at=new Date().toISOString();
+   const session={id:captured.sessionId,hints:1,status:'completed',imageRefs,messages:[{role:'user',content:captured.text,at,imageRefs},{role:'assistant',content:reply,agentName:'小星',at}]};
    db.prepare('INSERT OR REPLACE INTO documents VALUES(?,?)').run(`u:${student.id}:session:${session.id}`,JSON.stringify(session));
    await route.fulfill({contentType:'application/json',body:JSON.stringify({sessionId:session.id,hints:1,text:reply,agentName:'小星'})});
   });
-  await page.locator('#photo-input').setInputFiles({name:'作业.png',mimeType:'image/png',buffer:photo});
-  await page.locator('#photo-preview img').waitFor();
+  await page.locator('#photo-input').setInputFiles([{name:'作业第1页.png',mimeType:'image/png',buffer:photo},{name:'作业第2页.png',mimeType:'image/png',buffer:photo}]);
+  await page.locator('#photo-preview img').nth(1).waitFor();assert.equal(await page.locator('#photo-preview img').count(),2);
   await page.locator('#chat-input').fill('我这道错题怎么理解？3x+5=20');
   await page.locator('#send-chat').click();await received;
   assert.equal(await page.locator('#chat-input').inputValue(),'');
   assert.equal(await page.locator('#photo-preview').isVisible(),false);
-  assert.equal(await page.locator('.message.user img').count(),1);
+  assert.equal(await page.locator('.message.user img').count(),2);
   assert.match(await page.locator('.message.user').last().innerText(),/我这道错题怎么理解/);
   assert.match(await page.locator('.message-pending').innerText(),/小星正在思考/);
   assert.equal(await page.locator('.message-pending button').count(),0);
@@ -82,11 +81,12 @@ test('chat home sends homework pictures, restores history, and lets linked paren
   releaseReply();await page.locator('.message .katex').waitFor();
   assert.equal(await page.locator('#chat-input').inputValue(),'这是我在等待时写的下一条问题');
   assert.equal(await page.locator('.message-pending').count(),0);
-  assert.match(captured.image,/^data:image\/jpeg;base64,/);
-  assert.equal(captured.reveal,false);assert.equal(await page.locator('.message.user img').count(),1);
+  assert.equal(captured.images.length,2);assert.ok(captured.images.every(image=>/^data:image\/jpeg;base64,/.test(image)));
+  assert.equal(captured.reveal,false);assert.equal(await page.locator('.message.user img').count(),2);
   await page.locator('#send-chat:not([disabled])').waitFor();
   await page.reload();await page.locator('.message .katex').waitFor();
   await page.waitForFunction(()=>document.querySelector('.message.user img')?.naturalWidth>0);
+  assert.equal(await page.locator('.message.user img').count(),2);
   await page.screenshot({animations:'disabled',path:path.join(root,'artifacts/mobile-chat-photo.png'),fullPage:true});
   await page.locator('#nav-toggle').click();await page.locator('.conversation-item').first().waitFor();
   await page.screenshot({animations:'disabled',path:path.join(root,'artifacts/mobile-chat-sidebar.png'),fullPage:true});
@@ -100,7 +100,7 @@ test('chat home sends homework pictures, restores history, and lets linked paren
   await page.locator('.family-connections summary').click();await page.locator('#family-invite').click();await page.locator('#family-invitation').waitFor();const invite=await page.locator('#family-invite-code').inputValue();
   const parentContext=await browser.newContext({viewport:{width:1440,height:1000}}),parentPage=await parentContext.newPage();parentPage.on('pageerror',e=>errors.push(e.message));
   await register(parentPage,'19900000013');await parentPage.locator('.family-link').click();await parentPage.locator('.family-connections summary').click();await parentPage.locator('#family-code-input').fill(invite);await parentPage.locator('#family-link-form button').click();
-  await parentPage.locator('.parent-message.user img').waitFor();await parentPage.waitForFunction(()=>document.querySelector('.parent-message.user img')?.naturalWidth>0);
+  await parentPage.locator('.parent-message.user img').nth(1).waitFor();await parentPage.waitForFunction(()=>[...document.querySelectorAll('.parent-message.user img')].length===2&&[...document.querySelectorAll('.parent-message.user img')].every(image=>image.naturalWidth>0));
   assert.match(await parentPage.locator('#family-messages').innerText(),/我这道错题怎么理解/);assert.match(await parentPage.locator('#family-messages').innerText(),/等式的平衡/);assert.match(await parentPage.locator('#family-messages').innerText(),/小星/);
   await parentPage.locator('.family-connections summary').click();await parentPage.screenshot({animations:'disabled',path:path.join(root,'artifacts/parent-conversation-desktop.png'),fullPage:true});
   await page.reload();await page.locator('#chat-note').getByText('已关联家长可查看',{exact:false}).waitFor();

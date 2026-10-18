@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { loadModelEnvironment, availableModels } from './config.mjs';
 import { runTutor, canReveal } from './tutor.mjs';
+import { createImageGenerationService, extractGeneratedImagePrompt, loadImageGenerationKey } from './image-generation.mjs';
 import { samples, grade, variant } from '../dist/core.js';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
 import { defaultAppearance, validateAppearance } from './appearance.mjs';
@@ -41,10 +42,13 @@ const archive=resolve(process.env.EDU_ARCHIVE_DIR||resolve(root,'../真题库'))
 const paperManifest=()=>{try{return JSON.parse(readFileSync(resolve(archive,'download-manifest.json'),'utf8'));}catch{return {papers:[],counts:{}};}};
 const environment=loadModelEnvironment();const models=availableModels(environment);
 const speech=createSpeechService({apiKey:loadSpeechKey()});
+const imageGeneration=createImageGenerationService({apiKey:loadImageGenerationKey(environment),model:process.env.OPENAI_IMAGE_MODEL||'gpt-image-2.5-flare'});
 const busy=new Set();const host=process.env.EDU_HOST||'127.0.0.1';const port=Number(process.env.EDU_PORT||3018);
 function send(res,status,body,type='application/json; charset=utf-8'){res.writeHead(status,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(type.startsWith('application/json')?JSON.stringify(body):body);}
 async function body(req,max=8*1024*1024){let size=0;const chunks=[];for await(const c of req){size+=c.length;if(size>max)throw Object.assign(new Error('请求过大'),{status:413});chunks.push(c);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw Object.assign(new Error('无效 JSON'),{status:400});}}
-function imageInput(value){if(!value)return null;const match=/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(value));if(!match||Buffer.from(match[2],'base64').length>5*1024*1024)throw Object.assign(new Error('请使用 5 MB 以内的 JPG、PNG 或 WebP 图片'),{status:400});return {mimeType:match[1],base64:match[2]};}
+const MAX_CHAT_IMAGES=9,MAX_CHAT_IMAGE_BYTES=10*1024*1024,MAX_CHAT_IMAGES_TOTAL=30*1024*1024;
+function imageInput(value){const match=/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(value));if(!match)throw Object.assign(new Error('请上传 JPG、PNG 或 WebP 图片'),{status:400});const bytes=Buffer.from(match[2],'base64');if(!bytes.length||bytes.length>MAX_CHAT_IMAGE_BYTES)throw Object.assign(new Error('单张图片不能超过 10 MB'),{status:400});return {mimeType:match[1],base64:match[2],bytes};}
+function imageInputs(input){const values=input.images!==undefined?input.images:input.image?[input.image]:[];if(!Array.isArray(values))throw Object.assign(new Error('图片附件格式不正确'),{status:400});if(values.length>MAX_CHAT_IMAGES)throw Object.assign(new Error(`一条消息最多附 ${MAX_CHAT_IMAGES} 张图片；整套试卷可以分批发送`),{status:400});const images=values.map(imageInput);if(images.reduce((sum,item)=>sum+item.bytes.length,0)>MAX_CHAT_IMAGES_TOTAL)throw Object.assign(new Error('这批图片总大小不能超过 30 MB，请分批发送'),{status:400});return images;}
 
 const familyRoutes=createFamilyRoutes({db,data,readDocument,body,send});
 
@@ -88,14 +92,14 @@ const server=createServer(async(req,res)=>{
   const appearance=()=>{const value={...defaultAppearance,...get('appearance',{})};return {...value,voiceName:resolveVoice(value.voiceName)};};
   if(url.pathname==='/api/appearance'&&req.method==='GET')return send(res,200,appearance());
   if(url.pathname==='/api/appearance'&&req.method==='POST'){const settings=validateAppearance({...appearance(),...await body(req,1500000)});put('appearance',settings);return send(res,200,settings);}
-  if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion:'1.1.0',mediaGeneration:false,longTermMemory:true});
+  if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion:'1.1.0',mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,longTermMemory:true});
   if(url.pathname==='/api/learning'&&req.method==='GET'){const learning=get('learning',{});return send(res,200,{...learning,questions:learning.questions.map(publicQuestion)});}
   if(url.pathname==='/api/memory'&&req.method==='GET')return send(res,200,memory());
   if(url.pathname==='/api/sessions'&&req.method==='GET'){
    return send(res,200,{sessions:sessionList(db,user.id)});
   }
   const photoRoute=/^\/api\/sessions\/([\w-]{1,80})\/images\/(\d{1,6})$/.exec(url.pathname);
-  if(photoRoute&&req.method==='GET')return sendSessionImage(send,res,data,user.id,get(`session:${photoRoute[1]}`,{messages:[]}),Number(photoRoute[2]));
+  if(photoRoute&&req.method==='GET')return sendSessionImage(send,res,data,user.id,get(`session:${photoRoute[1]}`,{messages:[]}),Number(photoRoute[2]),Number(url.searchParams.get('item')||0));
   if(url.pathname.startsWith('/api/sessions/')&&req.method==='GET'){
    const id=url.pathname.split('/').at(-1);if(!/^[\w-]{1,80}$/.test(id))return send(res,400,{error:'无效会话'});
    return send(res,200,publicSession(get(`session:${id}`,{id,hints:0,messages:[{role:'assistant',kind:'greeting',content:welcomeMessage(get('profile',defaultProfile),appearance().agentName),agentName:appearance().agentName,at:new Date().toISOString()}]}),`/api/sessions/${id}/images`));
@@ -127,11 +131,12 @@ const server=createServer(async(req,res)=>{
   }
   if(url.pathname==='/api/variants'&&req.method==='POST'){const input=await body(req,10000);const learning=get('learning',{});const q=learning.questions.find(q=>q.id===input.questionId);if(!q?.template)return send(res,400,{error:'该题尚无变式模板'});const generated=variant(q);learning.questions.push(generated);put('learning',learning);return send(res,201,publicQuestion(generated));}
   if(url.pathname==='/api/chat'&&req.method==='POST'){
-   const input=await body(req);const text=String(input.text||'').trim();if(!text||text.length>12000)return send(res,400,{error:'请输入 1—12000 字的问题'});
+   const input=await body(req,45*1024*1024);const text=String(input.text||'').trim();if(!text||text.length>12000)return send(res,400,{error:'请输入 1—12000 字的问题'});
    const id=/^[\w-]{1,80}$/.test(input.sessionId||'')?input.sessionId:randomUUID();if(busy.has(user.id))return send(res,409,{error:'老师正在回答，请等这一轮完成'});
    const profile=get('profile',defaultProfile),agentName=appearance().agentName;
    const session=get(`session:${id}`,{id,hints:0,messages:[{role:'assistant',kind:'greeting',content:welcomeMessage(profile,agentName),agentName,at:new Date().toISOString()}],attempt:''});
-   const nickname=!input.image&&!input.reveal&&!input.media?nicknameFromMessage(text,!hasNickname(profile)&&!profile.nicknameAsked&&session.messages.at(-1)?.kind==='greeting'):null;
+   const requestedImages=imageInputs(input);
+   const nickname=!requestedImages.length&&!input.reveal&&!input.media?nicknameFromMessage(text,!hasNickname(profile)&&!profile.nicknameAsked&&session.messages.at(-1)?.kind==='greeting'):null;
    if(nickname){
     profile.displayName=nickname;profile.nicknameConfirmed=true;profile.nicknameAsked=true;put('profile',profile);
     const at=new Date().toISOString(),reply=`好呀，${nickname}！我记住啦，以后就这样称呼你。你今天想聊点什么？有不会的题，也可以直接发给我。`;
@@ -139,25 +144,39 @@ const server=createServer(async(req,res)=>{
     return send(res,200,{sessionId:id,text:reply,agentName,hints:session.hints});
    }
    const model=models.find(m=>m.id===input.modelId&&m.configured);if(!model)return send(res,503,{error:'这个模型尚未读取到配置，请选择已配置模型。'});
-   const reveal=input.reveal===true;if(reveal&&(input.image||!canReveal(session,String(input.attempt||session.attempt))))return send(res,409,{error:'先听一个提示，再写下你的尝试，然后一起核对步骤。'});
-   let image=imageInput(input.image);
-   if(image&&!model.vision)return send(res,400,{error:'请先选择支持识图的模型。'});
-   if(image){if(session.imageRef&&!session.messages.some(m=>m.imageRef)){const previous=session.messages.find(m=>m.role==='user');if(previous)previous.imageRef=session.imageRef;}const filename=createHash('sha256').update(Buffer.from(image.base64,'base64')).digest('hex');mkdirSync(resolve(data,'homework',user.id),{recursive:true});writeFileSync(resolve(data,'homework',user.id,filename),Buffer.from(image.base64,'base64'));session.imageRef={filename,mimeType:image.mimeType};session.hints=0;session.attempt='';session.questionId=null;}
-   else if(session.imageRef&&/^[a-f0-9]{64}$/.test(session.imageRef.filename)){image={mimeType:session.imageRef.mimeType,base64:readFileSync(resolve(data,'homework',user.id,session.imageRef.filename)).toString('base64')};}
-   if(image&&!model.vision)return send(res,400,{error:'这轮对话包含作业照片，请选择支持识图的模型。'});
+   const reveal=input.reveal===true;if(reveal&&(requestedImages.length||!canReveal(session,String(input.attempt||session.attempt))))return send(res,409,{error:'先听一个提示，再写下你的尝试，然后一起核对步骤。'});
+   if(requestedImages.length&&!model.vision)return send(res,400,{error:'请先选择支持识图的模型。'});
+   let images=requestedImages;
+   const previousRefs=session.imageRefs|| (session.imageRef?[session.imageRef]:[]);
+   if(requestedImages.length){
+    if(session.imageRef&&!session.messages.some(m=>m.imageRef||m.imageRefs)){const previous=session.messages.find(m=>m.role==='user');if(previous)previous.imageRef=session.imageRef;}
+    const refs=[];for(const item of requestedImages){const filename=createHash('sha256').update(item.bytes).digest('hex');mkdirSync(resolve(data,'homework',user.id),{recursive:true});writeFileSync(resolve(data,'homework',user.id,filename),item.bytes);refs.push({filename,mimeType:item.mimeType});}
+    session.imageRefs=refs;session.imageRef=refs[0];session.hints=0;session.attempt='';session.questionId=null;
+   }else if(previousRefs.length){
+    images=previousRefs.map(ref=>{if(!/^[a-f0-9]{64}$/.test(ref.filename)||!/^image\/(jpeg|png|webp)$/.test(ref.mimeType))throw Object.assign(new Error('历史图片暂时无法读取，请重新上传'),{status:400});const bytes=readFileSync(resolve(data,'homework',user.id,ref.filename));if(bytes.length>MAX_CHAT_IMAGE_BYTES)throw Object.assign(new Error('历史图片超过当前读取限制，请重新上传'),{status:400});return {mimeType:ref.mimeType,base64:bytes.toString('base64'),bytes};});
+   }
+   if(images.length&&!model.vision)return send(res,400,{error:'这轮对话包含作业照片，请选择支持识图的模型。'});
    if(input.questionId)session.questionId=String(input.questionId).slice(0,100);
-   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),240000);res.on('close',()=>{if(!res.writableEnded)controller.abort();});busy.add(user.id);
+   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),280000);res.on('close',()=>{if(!res.writableEnded)controller.abort();});busy.add(user.id);
    if(!hasNickname(profile)){profile.nicknameAsked=true;put('profile',profile);}
    const historySession={...session,messages:[...session.messages]};
-   session.messages.push({role:'user',content:text,at:new Date().toISOString(),...(input.image?{imageRef:session.imageRef}:{})});session.status='pending';put(`session:${id}`,session);
+   session.messages.push({role:'user',content:text,at:new Date().toISOString(),...(requestedImages.length?{imageRefs:session.imageRefs,imageRef:session.imageRef}:{})});session.status='pending';put(`session:${id}`,session);
    try{
-    const raw=await runTutor({session:historySession,text,modelId:model.id,image,environment,memory:memory(),agentName,reveal,media:['图片','视频','Blender 3D'].includes(input.media)?input.media:'',signal:controller.signal});
-    const parsed=parseLearningFeedback(raw,text,historySession.messages);if(!parsed.text)throw new Error('模型未返回讲解');
+    const media=['图片','视频','Blender 3D'].includes(input.media)?input.media:'';
+    const raw=await runTutor({session:historySession,text,modelId:model.id,images,environment,memory:memory(),agentName,reveal,media,generateVisual:imageGeneration.configured&&!media,signal:controller.signal});
+    const withImage=extractGeneratedImagePrompt(raw);
+    const parsed=parseLearningFeedback(withImage.text,text,historySession.messages);if(!parsed.text)throw new Error('模型未返回讲解');
     const result=parsed.text,feedback=parsed.feedback?{...parsed.feedback,id:randomUUID()}:null;
-    const at=new Date().toISOString();session.messages.push({role:'assistant',content:result,agentName,at,...(feedback?{feedback}:{})});session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);put(`session:${id}`,session);
+    let generatedImageRef=null,imageError='';
+    if(withImage.prompt&&imageGeneration.configured&&!media){
+     try{const generated=await imageGeneration.generate(withImage.prompt,user.id,controller.signal);const filename=createHash('sha256').update(generated.buffer).digest('hex');mkdirSync(resolve(data,'illustrations',user.id),{recursive:true});writeFileSync(resolve(data,'illustrations',user.id,filename),generated.buffer);generatedImageRef={filename,mimeType:generated.mimeType};}
+     catch(error){if(controller.signal.aborted)throw error;imageError='这次配图暂时没生成出来，讲解文字已经保留。';}
+    }
+    const at=new Date().toISOString();session.messages.push({role:'assistant',content:result,agentName,at,...(generatedImageRef?{generatedImageRef}:{}),...(feedback?{feedback}:{})});session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);put(`session:${id}`,session);
     const learning=get('learning',{});learning.helpEvents||=[];const q=learning.questions.find(q=>q.id===session.questionId);learning.helpEvents.push({id:randomUUID(),sessionId:id,at,subject:q?.subject||'待识别',topic:q?.topic||'未标注',questionId:q?.id||null,action:reveal?'reviewed_solution':'asked_for_help'});put('learning',learning);
     if(q){const support=get(`support:${q.id}`,{hintsUsed:0});put(`support:${q.id}`,{...support,hintsUsed:support.hintsUsed+1,solutionSeen:support.solutionSeen||reveal});}
-    return send(res,200,{sessionId:id,text:result,agentName,hints:session.hints,feedback});
+    const imageUrl=generatedImageRef?`/api/sessions/${id}/images/${session.messages.length-1}`:null;
+    return send(res,200,{sessionId:id,text:result,agentName,hints:session.hints,feedback,imageUrl,imageError});
    }catch{const error='这次讲解未完成，请稍后重试。';session.messages.push({role:'assistant',content:error,status:'error',agentName,at:new Date().toISOString()});session.status='failed';put(`session:${id}`,session);return send(res,502,{error});}finally{clearTimeout(timeout);busy.delete(user.id);}
   }
   if(url.pathname==='/api/export')return send(res,200,{version:2,exportedAt:new Date().toISOString(),learning:get('learning',{}),memory:memory(),sessions:db.prepare('SELECT body FROM documents WHERE id LIKE ?').all(prefix+'session:%').map(row=>JSON.parse(row.body))});

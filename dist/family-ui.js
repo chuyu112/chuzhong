@@ -42,9 +42,14 @@ export function setupFamily({ api, action, node, toast }) {
     for (const message of saved.messages) {
       const row = node('div', `parent-message ${message.role}`);
       row.append(node('small', '', `${message.role === 'user' ? '学生' : (message.agentName || '小直')} · ${when(message.at)}${message.status === 'error' ? ' · 讲解未完成' : ''}`));
-      if (message.imageUrl) {
-        const link = node('a'); link.href = message.imageUrl; link.target = '_blank'; link.rel = 'noopener'; link.title = '打开原图';
-        const image = node('img', 'chat-attachment'); image.src = message.imageUrl; image.alt = '学生上传的作业或错题'; link.append(image); row.append(link);
+      const imageUrls = message.imageUrls || (message.imageUrl ? [message.imageUrl] : []);
+      if (imageUrls.length) {
+        const gallery = node('div', 'chat-attachments');
+        imageUrls.forEach((imageUrl, index) => {
+          const link = node('a'); link.href = imageUrl; link.target = '_blank'; link.rel = 'noopener'; link.title = '打开图片';
+          const image = node('img', 'chat-attachment'); image.src = imageUrl; image.alt = message.role === 'user' ? `学生上传的作业图片第 ${index + 1} 张` : '小直生成的学习图解'; link.append(image); gallery.append(link);
+        });
+        row.append(gallery);
       }
       const text = node('div', 'parent-message-text', message.content);
       renderMathInElement(text, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\[', right: '\\]', display: true }, { left: '\\(', right: '\\)', display: false }, { left: '$', right: '$', display: false }], throwOnError: false, trust: false, maxExpand: 1000, maxSize: 20 });
@@ -55,7 +60,7 @@ export function setupFamily({ api, action, node, toast }) {
   async function refreshRecords() {
     const result = await api(studentPath());
     $('family-stats').replaceChildren();
-    for (const [count, label] of [[result.sessions.length, '已保存对话'], [result.sessions.reduce((n, s) => n + s.imageCount, 0), '作业 / 错题图片'], [result.memory.topics.reduce((n, t) => n + t.totalAttempts, 0), '已记录作答']]) {
+    for (const [count, label] of [[result.sessions.length, '已保存对话'], [result.sessions.reduce((n, s) => n + s.imageCount, 0), '作业图片与学习图解'], [result.memory.topics.reduce((n, t) => n + t.totalAttempts, 0), '已记录作答']]) {
       const card = node('div', 'stat'); card.append(node('strong', '', String(count)), node('span', '', label)); $('family-stats').append(card);
     }
     if (!result.sessions.some(s => s.id === selectedSession)) selectedSession = result.sessions[0]?.id || '';

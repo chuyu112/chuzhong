@@ -32,6 +32,9 @@ test('accounts isolate study data, enforce password rules, and support admin res
   assert.equal((await admin.request('/api/auth/password',{currentPassword:'InitialAdminPass',password:'ActualAdminPass'})).status,200);
   assert.equal((await admin.request('/api/memory')).body.profile.displayName,'Original family');
   r=await alice.request('/api/auth/register',{phone:'19900000002',password:'Abcdefgh',role:'admin'});assert.equal(r.status,201);assert.equal(r.body.user.role,'user');const aliceId=r.body.user.id;
+  const tinyImage='data:image/jpeg;base64,AA==';
+  const tooMany=await alice.request('/api/chat',{text:'整套试卷',sessionId:'too-many',images:Array(10).fill(tinyImage),modelId:'unconfigured'});assert.equal(tooMany.status,400);assert.match(tooMany.body.error,/最多附 9 张/);
+  const allowedBatch=await alice.request('/api/chat',{text:'整套试卷',sessionId:'nine-pages',images:Array(9).fill(tinyImage),modelId:'unconfigured'});assert.equal(allowedBatch.status,503);
   const bobId=(await bob.request('/api/auth/register',{phone:'19900000003',password:'BobPassword'})).body.user.id;
   assert.notEqual((await bob.request('/api/memory')).body.profile.displayName,'Original family');
   assert.equal((await alice.request('/api/admin/users')).status,403);
@@ -84,6 +87,12 @@ test('accounts isolate study data, enforce password rules, and support admin res
   const imageUrl=(await alice.request('/api/sessions/shared-id')).body.messages[0].imageUrl;
   assert.equal((await fetch(base+imageUrl,{headers:{cookie:alice.cookie}})).status,200);
   assert.equal((await fetch(base+imageUrl,{headers:{cookie:bob.cookie}})).status,404);
+  const multiRefs=[{filename:'b'.repeat(64),mimeType:'image/png'},{filename:'c'.repeat(64),mimeType:'image/jpeg'}];
+  db.prepare('INSERT INTO documents VALUES(?,?)').run(`u:${aliceId}:session:multi-photo`,JSON.stringify({id:'multi-photo',messages:[{role:'user',content:'整套卷子',imageRefs:multiRefs},{role:'assistant',content:'我会按顺序看每一页。'}]}));
+  await writeFile(path.join(directory,'homework',aliceId,'b'.repeat(64)),Buffer.from('page-one'));
+  await writeFile(path.join(directory,'homework',aliceId,'c'.repeat(64)),Buffer.from('page-two'));
+  const multiSession=(await alice.request('/api/sessions/multi-photo')).body;assert.equal(multiSession.messages[0].imageUrls.length,2);assert.equal(multiSession.hasImage,true);
+  assert.equal((await fetch(base+multiSession.messages[0].imageUrls[1],{headers:{cookie:alice.cookie}})).status,200);
   const familyPath='/api/family/students/'+aliceId;
   assert.equal((await bob.request(familyPath)).status,403);
   assert.equal((await admin.request(familyPath)).status,403);
@@ -101,6 +110,10 @@ test('accounts isolate study data, enforce password rules, and support admin res
   assert.equal('imageRef' in reviewed.messages[0],false);
   assert.equal((await fetch(base+reviewed.messages[0].imageUrl,{headers:{cookie:bob.cookie}})).status,200);
   assert.equal((await fetch(base+reviewed.messages[0].imageUrl,{headers:{cookie:admin.cookie}})).status,403);
+  const reviewedMulti=(await bob.request(familyPath+'/sessions/multi-photo')).body;
+  assert.equal(reviewedMulti.messages[0].imageUrls.length,2);
+  assert.equal((await fetch(base+reviewedMulti.messages[0].imageUrls[1],{headers:{cookie:bob.cookie}})).status,200);
+  assert.equal((await fetch(base+reviewedMulti.messages[0].imageUrls[1],{headers:{cookie:admin.cookie}})).status,403);
   await alice.request('/api/family/unlink',{direction:'parent',id:bobId});
   assert.equal((await bob.request(familyPath+'/sessions/shared-id')).status,403);
   assert.equal((await fetch(base+reviewed.messages[0].imageUrl,{headers:{cookie:bob.cookie}})).status,403);
@@ -108,7 +121,7 @@ test('accounts isolate study data, enforce password rules, and support admin res
   db.prepare('UPDATE family_invites SET expires_at=0').run();
   assert.equal((await bob.request('/api/family/link',{code:expired.code})).status,400);
   assert.equal((await bob.request('/api/export')).body.sessions.length,0);
-  assert.equal((await alice.request('/api/export')).body.sessions.length,2);
+  assert.equal((await alice.request('/api/export')).body.sessions.length,3);
   assert.equal((await alice.request('/api/profile',{displayName:'forged'},{origin:'https://unrelated.example'})).status,403);
   await aliceOther.request('/api/auth/login',{phone:'19900000002',password:'Abcdefgh'});
   assert.equal((await admin.request('/api/admin/users')).body.users.length,3);

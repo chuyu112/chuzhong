@@ -4,19 +4,34 @@ import { resolve } from 'node:path';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
 
 export function messageImage(session, index) {
-  return session.messages?.[index]?.imageRef || (index === session.messages?.findIndex(m => m.role === 'user') && !session.messages?.some(m => m.imageRef) ? session.imageRef : null);
+  return messageImages(session, index)[0] || null;
+}
+export function messageImages(session, index) {
+  const message = session.messages?.[index];
+  if (!message) return [];
+  if (Array.isArray(message.imageRefs)) return message.imageRefs;
+  if (message.imageRef) return [message.imageRef];
+  if (message.generatedImageRef) return [{ ...message.generatedImageRef, generated: true }];
+  const firstUser = session.messages?.findIndex(item => item.role === 'user');
+  if (index === firstUser && Array.isArray(session.imageRefs)) return session.imageRefs;
+  if (index === firstUser && session.imageRef) return [session.imageRef];
+  return [];
 }
 export function publicSession(saved, imageBase) {
-  const { imageRef, ...session } = saved;
-  return { ...session, hasImage: !!imageRef, messages: (session.messages || []).map(({ imageRef, ...m }, index) => ({ ...m, ...(messageImage(saved, index) ? { imageUrl: `${imageBase}/${index}` } : {}) })) };
+  const { imageRef, imageRefs, ...session } = saved;
+  return { ...session, hasImage: Boolean(imageRef || imageRefs?.length || session.messages?.some((_, index) => messageImages(session, index).length)), messages: (session.messages || []).map(({ imageRef, imageRefs, generatedImageRef, ...m }, index) => {
+    const refs = messageImages(saved, index);
+    const imageUrls = refs.map((_, item) => `${imageBase}/${index}?item=${item}`);
+    return { ...m, ...(imageUrls.length ? { imageUrl: imageUrls[0], imageUrls } : {}) };
+  }) };
 }
 export function sessionList(db, userId) {
-  return db.prepare('SELECT body FROM documents WHERE id LIKE ?').all(`u:${userId}:session:%`).map(row => JSON.parse(row.body)).filter(s => s.messages?.length).map(s => ({ id: s.id, title: (s.messages.find(m => m.role === 'user')?.content || '题目讲解').replace(/\s+/g, ' ').slice(0, 40), updatedAt: s.messages.at(-1)?.at || '', messageCount: s.messages.length, imageCount: s.messages.filter((_, index) => messageImage(s, index)).length })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return db.prepare('SELECT body FROM documents WHERE id LIKE ?').all(`u:${userId}:session:%`).map(row => JSON.parse(row.body)).filter(s => s.messages?.length).map(s => ({ id: s.id, title: (s.messages.find(m => m.role === 'user')?.content || '题目讲解').replace(/\s+/g, ' ').slice(0, 40), updatedAt: s.messages.at(-1)?.at || '', messageCount: s.messages.length, imageCount: s.messages.reduce((count, _, index) => count + messageImages(s, index).length, 0) })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
-export function sendSessionImage(send, res, data, userId, session, index) {
-  const ref = messageImage(session, index);
+export function sendSessionImage(send, res, data, userId, session, index, item = 0) {
+  const ref = messageImages(session, index)[item];
   if (!ref || !/^image\/(jpeg|png|webp)$/.test(ref.mimeType) || !/^[a-f0-9]{64}$/.test(ref.filename)) return send(res, 404, { error: '图片不存在' });
-  const path = resolve(data, 'homework', userId, ref.filename);
+  const path = resolve(data, ref.generated ? 'illustrations' : 'homework', userId, ref.filename);
   if (!existsSync(path)) return send(res, 404, { error: '图片不存在' });
   return send(res, 200, readFileSync(path), ref.mimeType);
 }
@@ -76,7 +91,7 @@ export function createFamilyRoutes({ db, data, readDocument, body, send }) {
       if (sessionId) {
         const saved = readDocument(`u:${studentId}:session:${sessionId}`, null);
         if (!saved) return reply(404, { error: '对话不存在' });
-        if (imageIndex !== undefined) { sendSessionImage(send, res, data, studentId, saved, Number(imageIndex)); return true; }
+        if (imageIndex !== undefined) { sendSessionImage(send, res, data, studentId, saved, Number(imageIndex), Number(url.searchParams.get('item') || 0)); return true; }
         return reply(200, publicSession(saved, `/api/family/students/${studentId}/sessions/${sessionId}/images`));
       }
       const learning = readDocument(`u:${studentId}:learning`, { questions: [], attempts: [], helpEvents: [] });

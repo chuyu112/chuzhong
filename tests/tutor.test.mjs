@@ -28,3 +28,21 @@ test('tutor expands classic-text exercises with context, memory visuals, and the
   assert.match(policy, /最后附上作品完整原文供核对/);
   assert.match(policy, /原文放在回复末尾/);
 });
+
+test('tutor accepts a multi-page photo set and requests automatic visuals for English learning', async () => {
+  let received;
+  await runTutor({
+    session: { id: 'multi-photo', hints: 0, messages: [] },
+    text: '过去完成时', modelId: 'glm-5.3-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }),
+    images: [
+      { mimeType: 'image/jpeg', base64: 'cGFnZTE=' },
+      { mimeType: 'image/jpeg', base64: 'cGFnZTI=' },
+      { mimeType: 'image/jpeg', base64: 'cGFnZTM=' },
+    ], generateVisual: true,
+    runModelOverride: async ({ job, context }) => { received = { job, context }; return '先看动作发生的先后。'; },
+  });
+  assert.equal(received.job.assets.length, 3);
+  assert.deepEqual(received.job.assets.map(asset => asset.id), ['homework-photo-1', 'homework-photo-2', 'homework-photo-3']);
+  assert.match(received.context.systemPrompt, /英语语法、单词/);
+  assert.match(received.context.systemPrompt, /<learning-image>/);
+});
