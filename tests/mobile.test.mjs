@@ -32,6 +32,9 @@ test('chat home sends homework pictures, restores history, and lets linked paren
   await page.locator('#chat-input').fill('叫我小禾');await page.locator('#send-chat').click();await page.getByText('好呀，小禾！我记住啦',{exact:false}).waitFor();await page.locator('#send-chat:not([disabled])').waitFor();
   assert.equal((await (await page.request.get(url+'/api/memory')).json()).profile.displayName,'小禾');
   await page.locator('#account-open').click();await page.locator('#customize-open').click();
+  assert.equal(await page.locator('#custom-voice').inputValue(),'doubao:random');
+  assert.match(await page.locator('#custom-voice').innerText(),/小何、Vivi、咪仔、桃子、梓梓/);
+  assert.equal(await page.locator('#custom-voice-preview').isEnabled(),true);
   await page.locator('input[name="theme"][value="ocean"]').check();
   await page.locator('#custom-agent-name').fill('星'.repeat(16));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.locator('#custom-agent-name').fill('小星');

@@ -1,8 +1,9 @@
 import { DEFAULT_AGENT_NAME } from './onboarding.js';
+import { DEFAULT_VOICE, VOICES, resolveVoice } from './voice-options.js';
 
 export function setupAppearance({ api, toast, speech, onAgentName }) {
   const $ = id => document.getElementById(id);
-  let saved = { agentName: DEFAULT_AGENT_NAME, theme: 'warm', background: 'plain', avatar: '', backgroundImage: '', voiceName: '', voiceRate: 0.9, celebration: true, celebrationSound: true }, draft = { ...saved };
+  let saved = { agentName: DEFAULT_AGENT_NAME, theme: 'warm', background: 'plain', avatar: '', backgroundImage: '', voiceName: DEFAULT_VOICE, voiceRate: 0.9, celebration: true, celebrationSound: true }, draft = { ...saved };
   const guard = fn => async event => { try { await fn(event); } catch (error) { $('custom-error').textContent = error.message; $('custom-error').hidden = false; } };
   function apply(value) {
     onAgentName?.(value.agentName || DEFAULT_AGENT_NAME);
@@ -19,15 +20,13 @@ export function setupAppearance({ api, toast, speech, onAgentName }) {
     if (value.backgroundImage) $('custom-background-preview').src = value.backgroundImage; else $('custom-background-preview').removeAttribute('src');
   }
   function voices() {
-    const list = window.speechSynthesis?.getVoices() || [];
-    const chinese = list.filter(v => /^zh|^cmn|^yue/i.test(v.lang));
-    $('custom-voice').replaceChildren(new Option('自动选择中文声音', ''), ...chinese.map(v => new Option(`${v.name} · ${v.lang}`, v.name)));
-    if (draft.voiceName && !chinese.some(v => v.name === draft.voiceName)) $('custom-voice').append(new Option(`${draft.voiceName}（此设备暂不可用）`, draft.voiceName));
+    draft.voiceName = resolveVoice(draft.voiceName);
+    $('custom-voice').replaceChildren(...VOICES.map(voice => new Option(voice.label, voice.id)));
     $('custom-voice').value = draft.voiceName;
-    $('custom-voice-preview').disabled = !('speechSynthesis' in window);
-    $('custom-voice-note').textContent = !('speechSynthesis' in window) ? '当前浏览器不支持朗读，请换用支持语音的浏览器。' : chinese.length ? '声音由当前设备提供，换设备后可能自动使用其他中文声音。' : '设备尚未提供中文声音列表，朗读时会尝试系统默认声音。';
+    $('custom-voice-preview').disabled = false;
+    $('custom-voice-note').textContent = '每次朗读会从五种豆包音色中随机选一种；试听和讲解使用同一规则。';
   }
-  function voiceOptions() { return { name: saved.voiceName, rate: saved.voiceRate }; }
+  function voiceOptions() { return { name: resolveVoice(saved.voiceName), rate: saved.voiceRate }; }
   async function refresh() { saved = { ...saved, ...await api('/api/appearance') }; draft = { ...saved }; apply(saved); }
   $('customize-open').onclick = () => {
     speech.stop(); $('account-dialog').close(); draft = { ...saved }; $('custom-error').hidden = true;
@@ -53,7 +52,6 @@ export function setupAppearance({ api, toast, speech, onAgentName }) {
     voice:{name:draft.voiceName,rate:draft.voiceRate},button:$('custom-voice-preview'),
     onState:state=>{ $('custom-voice-preview').textContent=state==='idle'?`试听${draft.agentName || DEFAULT_AGENT_NAME}的声音`:state==='loading'?'■ 取消 · 准备中':state==='paused'?'▶ 继续试听':'⏸ 暂停试听'; }
   });
-  window.speechSynthesis?.addEventListener('voiceschanged', () => { if ($('customize-dialog').open) voices(); });
   async function picture(file, avatar) {
     if (!file) return;
     const currentDraft = draft;

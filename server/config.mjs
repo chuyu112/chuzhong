@@ -8,7 +8,7 @@ import { providerConfig } from '../vendor/cuiyi/runner/text-runtime.mjs';
 // employee identities or database credentials into this independent application.
 export function loadModelEnvironment(source = process.env.CUIYI_SOURCE_DIR || resolve('..', '..', '翠易导演台')) {
   const environment = {};
-  const permitted = /^(GLM_|KIMI_|JIEKOU_|DEEPSEEK_|DOUBAO_|ARK_API_KEY$|OPENAI_|GEMINI_|QWEN_|DASHSCOPE_|KONJAC_)/;
+  const permitted = /^(GLM_|KIMI_|JIEKOU_|DEEPSEEK_|DOUBAO_(?!TTS_)|ARK_API_KEY$|OPENAI_|GEMINI_|QWEN_|DASHSCOPE_|KONJAC_)/;
   for (const file of ['.env.runner', '.env.local', '.env.jiekou.local']) {
     try {
       const values = parseEnv(readFileSync(resolve(source, file), 'utf8'));

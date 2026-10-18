@@ -18,6 +18,7 @@ test('accounts isolate study data, enforce password rules, and support admin res
   const client=()=>({cookie:'',async request(route,data,extra={}){const r=await fetch(base+route,{method:data===undefined?'GET':'POST',headers:{'content-type':'application/json',cookie:this.cookie,...extra},body:data===undefined?undefined:JSON.stringify(data)});const setCookie=r.headers.get('set-cookie');if(setCookie)this.cookie=setCookie.split(';')[0];return {status:r.status,body:await r.json(),setCookie};}});
   const guest=client(),admin=client(),alice=client(),bob=client(),aliceOther=client();
   assert.equal((await guest.request('/api/config')).status,401);
+  assert.equal((await guest.request('/api/speech',{text:'测试'})).status,401);
   assert.equal((await guest.request('/papers/archive/176')).status,401);
   for(const password of ['Abcdefg','abcdefgh','ABCDEFGH','12345678'])assert.equal((await guest.request('/api/auth/register',{phone:'19900000002',password})).status,400);
   assert.equal((await guest.request('/api/auth/register',{phone:'123',password:'Abcdefgh'})).status,400);
@@ -27,6 +28,7 @@ test('accounts isolate study data, enforce password rules, and support admin res
   assert.match(r.setCookie,/; Secure/);assert.match(r.setCookie,/HttpOnly/);assert.match(r.setCookie,/SameSite=Strict/);
   assert.equal((await admin.request('/api/admin/users')).status,403);
   assert.equal((await admin.request('/api/config')).body.passwordChangeRequired,true);
+  assert.equal((await admin.request('/api/speech',{text:'测试'})).body.passwordChangeRequired,true);
   assert.equal((await admin.request('/api/auth/password',{currentPassword:'InitialAdminPass',password:'ActualAdminPass'})).status,200);
   assert.equal((await admin.request('/api/memory')).body.profile.displayName,'Original family');
   r=await alice.request('/api/auth/register',{phone:'19900000002',password:'Abcdefgh',role:'admin'});assert.equal(r.status,201);assert.equal(r.body.user.role,'user');const aliceId=r.body.user.id;
@@ -45,6 +47,8 @@ test('accounts isolate study data, enforce password rules, and support admin res
   const appearance={agentName:'小星',theme:'lilac',background:'dots',avatar:'',backgroundImage:'',voiceName:'',voiceRate:1.1};
   assert.equal((await alice.request('/api/appearance',appearance)).status,200);
   assert.equal((await alice.request('/api/appearance')).body.theme,'lilac');
+  assert.equal((await alice.request('/api/appearance')).body.voiceName,'doubao:random');
+  assert.equal((await alice.request('/api/speech',{text:'测试',voice:'wrong'})).status,400);
   assert.equal((await bob.request('/api/appearance')).body.theme,'warm');
   assert.equal((await alice.request('/api/appearance',{...appearance,theme:'unsafe'})).status,400);
   assert.equal((await alice.request('/api/appearance',{...appearance,avatar:'javascript:alert(1)'})).status,400);
@@ -66,6 +70,8 @@ test('accounts isolate study data, enforce password rules, and support admin res
   assert.equal((await bob.request('/api/attempts',{questionId:q.id,answer:'1'})).status,404);
   assert.equal((await bob.request('/api/learning')).body.questions.some(x=>x.id===q.id),false);
   db=new DatabaseSync(path.join(directory,'education.sqlite'));
+  db.prepare('UPDATE documents SET body=? WHERE id=?').run(JSON.stringify({...appearance,voiceName:'legacy device voice'}),`u:${aliceId}:appearance`);
+  assert.equal((await alice.request('/api/appearance')).body.voiceName,'doubao:random');
   db.prepare('INSERT INTO documents VALUES(?,?)').run(`u:${aliceId}:session:shared-id`,JSON.stringify({id:'shared-id',messages:[{role:'user',content:'private photo question'}],imageRef:{filename:'a'.repeat(64),mimeType:'image/png'}}));
   db.prepare('INSERT INTO documents VALUES(?,?)').run('session:legacy-id',JSON.stringify({messages:[{content:'legacy secret'}]}));
   assert.equal((await bob.request('/api/sessions/shared-id')).body.messages.some(m=>m.role==='user'),false);

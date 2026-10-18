@@ -13,6 +13,8 @@ import { hasNickname, welcomeMessage, nicknameFromMessage } from '../dist/onboar
 import { createAccountAuth } from './accounts.mjs';
 import { createFamilyRoutes, publicSession, sessionList, sendSessionImage } from './family.mjs';
 import { parseLearningFeedback, practiceEncouragement } from './learning-feedback.mjs';
+import { createSpeechService, loadSpeechKey } from './speech.mjs';
+import { DEFAULT_VOICE, resolveVoice } from '../dist/voice-options.js';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const data=process.env.EDU_DATA_DIR || resolve(root,'data');mkdirSync(data,{recursive:true});
@@ -38,6 +40,7 @@ const publicQuestion=({answer,solution,hints,...q})=>({...q,hintCount:hints?.len
 const archive=resolve(process.env.EDU_ARCHIVE_DIR||resolve(root,'../真题库'));
 const paperManifest=()=>{try{return JSON.parse(readFileSync(resolve(archive,'download-manifest.json'),'utf8'));}catch{return {papers:[],counts:{}};}};
 const environment=loadModelEnvironment();const models=availableModels(environment);
+const speech=createSpeechService({apiKey:loadSpeechKey()});
 const busy=new Set();const host=process.env.EDU_HOST||'127.0.0.1';const port=Number(process.env.EDU_PORT||3018);
 function send(res,status,body,type='application/json; charset=utf-8'){res.writeHead(status,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(type.startsWith('application/json')?JSON.stringify(body):body);}
 async function body(req,max=8*1024*1024){let size=0;const chunks=[];for await(const c of req){size+=c.length;if(size>max)throw Object.assign(new Error('请求过大'),{status:413});chunks.push(c);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw Object.assign(new Error('无效 JSON'),{status:400});}}
@@ -62,6 +65,15 @@ const server=createServer(async(req,res)=>{
    const result=await auth.changePassword(user,await body(req,20000));res.setHeader('set-cookie',result.cookie);return send(res,200,{user:result.user});
   }
   if(protectedRoute&&user.mustChangePassword)return send(res,403,{error:'请先修改临时密码，再进入学习空间',passwordChangeRequired:true});
+  if(url.pathname==='/api/speech'&&req.method==='POST'){
+   const input=await body(req,40000),controller=new AbortController();
+   const disconnected=()=>{if(!res.writableEnded)controller.abort();};res.on('close',disconnected);
+   try{
+    const result=await speech.synthesize(user.id,input,controller.signal);
+    if(!res.destroyed){res.setHeader('x-speech-voice',result.voiceId);res.setHeader('access-control-expose-headers','x-speech-voice');return send(res,200,result.audio,'audio/mpeg');}
+   }finally{res.off('close',disconnected);}
+   return;
+  }
   if(url.pathname==='/api/admin/users'&&req.method==='GET')return send(res,200,{users:auth.listUsers(user)});
   if(url.pathname==='/api/admin/reset-password'&&req.method==='POST')return send(res,200,await auth.resetPassword(user,(await body(req,10000)).userId));
   if(protectedRoute&&await familyRoutes(req,res,url,user))return;
@@ -73,7 +85,7 @@ const server=createServer(async(req,res)=>{
    if(!get('profile',null))put('profile',defaultProfile);
   }
   const memory=()=>buildStudentMemory(get('learning',{questions:[],attempts:[]}),get('profile',defaultProfile));
-  const appearance=()=>({...defaultAppearance,...get('appearance',{})});
+  const appearance=()=>{const value={...defaultAppearance,...get('appearance',{})};return {...value,voiceName:resolveVoice(value.voiceName)};};
   if(url.pathname==='/api/appearance'&&req.method==='GET')return send(res,200,appearance());
   if(url.pathname==='/api/appearance'&&req.method==='POST'){const settings=validateAppearance({...appearance(),...await body(req,1500000)});put('appearance',settings);return send(res,200,settings);}
   if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion:'1.1.0',mediaGeneration:false,longTermMemory:true});

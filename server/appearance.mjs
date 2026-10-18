@@ -1,6 +1,7 @@
 import { DEFAULT_AGENT_NAME } from '../dist/onboarding.js';
+import { DEFAULT_VOICE, resolveVoice } from '../dist/voice-options.js';
 
-export const defaultAppearance = { agentName: DEFAULT_AGENT_NAME, theme: 'warm', background: 'plain', avatar: '', backgroundImage: '', voiceName: '', voiceRate: 0.9, celebration: true, celebrationSound: true };
+export const defaultAppearance = { agentName: DEFAULT_AGENT_NAME, theme: 'warm', background: 'plain', avatar: '', backgroundImage: '', voiceName: DEFAULT_VOICE, voiceRate: 0.9, celebration: true, celebrationSound: true };
 export function validateAppearance(input) {
   const fail = message => { throw Object.assign(new Error(message), { status: 400 }); };
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('设置格式不正确');
@@ -21,5 +22,5 @@ export function validateAppearance(input) {
   const agentName = typeof input.agentName === 'string' ? input.agentName.trim() : '';
   if (!agentName || [...agentName].length > 16 || !/^[\p{L}\p{N}][\p{L}\p{N} ·_-]*$/u.test(agentName)) fail('伙伴昵称请使用 1—16 个字，可包含中文、字母和数字');
   for (const key of ['celebration', 'celebrationSound']) if (input[key] !== undefined && typeof input[key] !== 'boolean') fail('庆祝设置无效');
-  return { agentName, theme: input.theme, background: input.background, avatar, backgroundImage, voiceName: input.voiceName, voiceRate, celebration: input.celebration ?? true, celebrationSound: input.celebrationSound ?? true };
+  return { agentName, theme: input.theme, background: input.background, avatar, backgroundImage, voiceName: resolveVoice(input.voiceName), voiceRate, celebration: input.celebration ?? true, celebrationSound: input.celebrationSound ?? true };
 }
