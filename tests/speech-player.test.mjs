@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 
 test('random Doubao voices are used for legacy preferences; pause/resume reuses audio and never falls back', { timeout: 30000 }, async () => {
  const server = createServer((req, res) => {
-  if (req.url === '/') { res.setHeader('content-type', 'text/html'); return res.end('<div id="speech-bar" hidden><span id="speech-status"></span><button id="speech-stop">停止朗读</button></div><button id="read">朗读</button>'); }
+  if (req.url === '/') { res.setHeader('content-type', 'text/html'); return res.end('<div id="speech-bar" hidden><button id="speech-stop">停止朗读</button></div><button id="read">朗读</button>'); }
   if (!['/speech-player.js', '/core.js', '/voice-options.js'].includes(req.url)) { res.writeHead(404); return res.end(); }
   res.setHeader('content-type', 'text/javascript'); res.end(readFileSync(new URL('../dist' + req.url, import.meta.url)));
  });
@@ -55,7 +55,8 @@ test('random Doubao voices are used for legacy preferences; pause/resume reuses 
   assert.equal(await page.evaluate(() => calls.speak), 0); assert.equal(await page.locator('#speech-bar').isVisible(), false);
   fail = false; await page.evaluate(() => window.blockAutoplay = true);
   await read.click(); await page.waitForFunction(() => states.at(-1) === 'paused');
-  assert.match(await page.locator('#speech-status').innerText(), /点继续朗读/);
+  assert.equal(await page.locator('#speech-bar').isVisible(), false);
+  assert.doesNotMatch(await page.locator('body').innerText(), /正在朗读/);
   const before = requests.length; await read.click(); await page.waitForFunction(() => states.at(-1) === 'playing');
   assert.equal(requests.length, before); assert.equal(await page.evaluate(() => calls.speak), 0);
   await stop.click(); assert.equal(await page.evaluate(() => player.isActive()), false);

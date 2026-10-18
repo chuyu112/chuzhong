@@ -26,7 +26,7 @@ function freshChat(){speech.stop();celebration.stop();$('chat-input').value='';s
 $('new-chat').onclick=$('new-chat-header').onclick=()=>{if(state.sending)return toast('请等这一轮讲解完成。');freshChat();page('tutor');refreshConversations().catch(e=>toast(e.message));$('chat-input').focus();};
 $('ask-about-practice').onclick=()=>{if(state.sending)return toast('请等这一轮讲解完成。');const q=state.question;$('practice-dialog').close();freshChat();state.chatQuestionId=q.id;$('chat-input').value=`请先帮我理解这道题，给我一个提示：\n${q.stem}`;page('tutor');};
 function addMessage(role,text,imageUrls,agentName=appearance.agentName(),imageError=''){$('chat-welcome')?.removeAttribute('id');const el=node('div',`message ${role}`),content=node('div');for(const part of text.split(/(\*\*[^*]+\*\*)/g))content.append(part.startsWith('**')&&part.endsWith('**')?node('strong','',part.slice(2,-2)):document.createTextNode(part));renderMathInElement(content,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}],trust:false,throwOnError:false,maxExpand:1000,maxSize:20});el.append(node('small','',role==='user'?'我':agentName));const urls=(Array.isArray(imageUrls)?imageUrls:imageUrls?[imageUrls]:[]);if(urls.length){const gallery=node('div','chat-attachments');urls.forEach((url,index)=>{const img=node('img','chat-attachment');img.src=url;img.alt=role==='user'?`作业附件第 ${index+1} 张`:'小直生成的学习图解';gallery.append(img);});el.append(gallery);}el.append(content);if(imageError)el.append(node('small','image-generation-error',imageError));if(role==='assistant'){const button=node('button','read-aloud','🔊 朗读');button.type='button';button.setAttribute('aria-label','朗读这条回复');button.onclick=()=>speak(text,button);el.append(button);}$('messages').append(el);$('messages').scrollTop=$('messages').scrollHeight;return el;}
-function speak(text,button){celebration.stop();return speech.toggle({text,voice:appearance.voiceOptions(),button,onState:status=>{
+function speak(text,button,{preserveCelebration=false}={}){if(!preserveCelebration)celebration.stop();return speech.toggle({text,voice:appearance.voiceOptions(),button,onState:status=>{
  button.textContent=status==='idle'?'🔊 朗读':status==='loading'?'■ 取消 · 准备中':status==='paused'?'▶ 继续朗读':'⏸ 暂停朗读';
  button.setAttribute('aria-label',status==='idle'?'朗读这条回复':status==='paused'?'继续朗读':status==='loading'?'取消朗读':'暂停朗读');button.setAttribute('aria-pressed',String(status!=='idle'));
 }});}
@@ -66,7 +66,7 @@ async function processChatQueue(){
     const result=await api('/api/chat',payload,{signal:AbortSignal.timeout(290000)});
     state.sessionId=result.sessionId;localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);
     const reply=addMessage('assistant',result.text,result.imageUrl||null,result.agentName||agentName,result.imageError||'');pending.replaceWith(reply);
-    celebration.show(result.feedback);
+    celebration.show(result.feedback);const readButton=reply.querySelector('.read-aloud');if(readButton)void speak(result.text,readButton,{preserveCelebration:true});
    }catch(error){
     const message=error.name==='TimeoutError'?'等待回复超时，请稍后重试。':error.message;
     const failed=addMessage('assistant',`本轮未完成：${message}`,null,agentName);pending.replaceWith(failed);
