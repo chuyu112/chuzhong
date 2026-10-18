@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { loadModelEnvironment, availableModels } from './config.mjs';
 import { runTutor, canReveal } from './tutor.mjs';
-import { createImageGenerationService, extractGeneratedImagePrompt, loadImageGenerationKey } from './image-generation.mjs';
+import { createImageGenerationService, extractGeneratedImagePrompt } from './image-generation.mjs';
 import { samples, grade, variant } from '../dist/core.js';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
 import { defaultAppearance, validateAppearance } from './appearance.mjs';
@@ -42,9 +42,27 @@ const archive=resolve(process.env.EDU_ARCHIVE_DIR||resolve(root,'../真题库'))
 const paperManifest=()=>{try{return JSON.parse(readFileSync(resolve(archive,'download-manifest.json'),'utf8'));}catch{return {papers:[],counts:{}};}};
 const environment=loadModelEnvironment();const models=availableModels(environment);
 const speech=createSpeechService({apiKey:loadSpeechKey()});
-const imageGeneration=createImageGenerationService({apiKey:loadImageGenerationKey(environment),model:process.env.OPENAI_IMAGE_MODEL||'gpt-image-2.5-flare'});
+const imageGeneration=createImageGenerationService({projectId:process.env.FLOVA_IMAGE_PROJECT_ID||'',cliPath:process.env.FLOVA_CLI_PATH||'flova'});
 const busy=new Set();const host=process.env.EDU_HOST||'127.0.0.1';const port=Number(process.env.EDU_PORT||3018);
+const activeImageJobs=new Set();
 function send(res,status,body,type='application/json; charset=utf-8'){res.writeHead(status,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(type.startsWith('application/json')?JSON.stringify(body):body);}
+function startImageJob({jobId,userId,sessionId,messageIndex,prompt}){
+ const jobKey=`u:${userId}:image-job:${jobId}`,sessionKey=`u:${userId}:session:${sessionId}`;activeImageJobs.add(jobId);
+ void (async()=>{
+  try{
+   const generated=await imageGeneration.generate(prompt,userId),filename=createHash('sha256').update(generated.buffer).digest('hex');
+   mkdirSync(resolve(data,'illustrations',userId),{recursive:true});writeFileSync(resolve(data,'illustrations',userId,filename),generated.buffer);
+   const session=readDocument(sessionKey,null),message=session?.messages?.[messageIndex];
+   if(!message||message.imageJob?.id!==jobId)throw new Error('Image job no longer belongs to this message');
+   message.generatedImageRef={filename,mimeType:generated.mimeType};message.imageJob.status='completed';writeDocument(sessionKey,session);
+   const job=readDocument(jobKey,{});writeDocument(jobKey,{...job,status:'completed',completedAt:new Date().toISOString()});
+  }catch{
+   const job=readDocument(jobKey,{});writeDocument(jobKey,{...job,status:'failed',completedAt:new Date().toISOString()});
+   const session=readDocument(sessionKey,null),message=session?.messages?.[messageIndex];
+   if(message?.imageJob?.id===jobId){message.imageJob.status='failed';message.imageError='这次配图暂时没生成出来，讲解文字已经保留。';writeDocument(sessionKey,session);}
+  }finally{activeImageJobs.delete(jobId);}
+ })();
+}
 async function body(req,max=8*1024*1024){let size=0;const chunks=[];for await(const c of req){size+=c.length;if(size>max)throw Object.assign(new Error('请求过大'),{status:413});chunks.push(c);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw Object.assign(new Error('无效 JSON'),{status:400});}}
 const MAX_CHAT_IMAGES=9,MAX_CHAT_IMAGE_BYTES=10*1024*1024,MAX_CHAT_IMAGES_TOTAL=30*1024*1024;
 function imageInput(value){const match=/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(value));if(!match)throw Object.assign(new Error('请上传 JPG、PNG 或 WebP 图片'),{status:400});const bytes=Buffer.from(match[2],'base64');if(!bytes.length||bytes.length>MAX_CHAT_IMAGE_BYTES)throw Object.assign(new Error('单张图片不能超过 10 MB'),{status:400});return {mimeType:match[1],base64:match[2],bytes};}
@@ -97,6 +115,16 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/api/memory'&&req.method==='GET')return send(res,200,memory());
   if(url.pathname==='/api/sessions'&&req.method==='GET'){
    return send(res,200,{sessions:sessionList(db,user.id)});
+  }
+  const imageJobRoute=/^\/api\/image-jobs\/([\w-]{1,80})$/.exec(url.pathname);
+  if(imageJobRoute&&req.method==='GET'){
+   const job=get(`image-job:${imageJobRoute[1]}`,null);if(!job)return send(res,404,{error:'配图任务不存在'});
+   if(job.status==='pending'&&!activeImageJobs.has(imageJobRoute[1])){
+    job.status='failed';job.error='这次配图暂时没生成出来，讲解文字已经保留。';put(`image-job:${imageJobRoute[1]}`,job);
+    const saved=get(`session:${job.sessionId}`,null),message=saved?.messages?.[job.messageIndex];
+    if(message?.imageJob?.id===imageJobRoute[1]){message.imageJob.status='failed';message.imageError=job.error;put(`session:${job.sessionId}`,saved);}
+   }
+   return send(res,200,{status:job.status,imageUrl:job.status==='completed'?`/api/sessions/${job.sessionId}/images/${job.messageIndex}`:null,imageError:job.status==='failed'?(job.error||'这次配图暂时没生成出来，讲解文字已经保留。'):''});
   }
   const photoRoute=/^\/api\/sessions\/([\w-]{1,80})\/images\/(\d{1,6})$/.exec(url.pathname);
   if(photoRoute&&req.method==='GET')return sendSessionImage(send,res,data,user.id,get(`session:${photoRoute[1]}`,{messages:[]}),Number(photoRoute[2]),Number(url.searchParams.get('item')||0));
@@ -167,16 +195,13 @@ const server=createServer(async(req,res)=>{
     const withImage=extractGeneratedImagePrompt(raw);
     const parsed=parseLearningFeedback(withImage.text,text,historySession.messages);if(!parsed.text)throw new Error('模型未返回讲解');
     const result=parsed.text,feedback=parsed.feedback?{...parsed.feedback,id:randomUUID()}:null;
-    let generatedImageRef=null,imageError='';
-    if(withImage.prompt&&imageGeneration.configured&&!media){
-     try{const generated=await imageGeneration.generate(withImage.prompt,user.id,controller.signal);const filename=createHash('sha256').update(generated.buffer).digest('hex');mkdirSync(resolve(data,'illustrations',user.id),{recursive:true});writeFileSync(resolve(data,'illustrations',user.id,filename),generated.buffer);generatedImageRef={filename,mimeType:generated.mimeType};}
-     catch(error){if(controller.signal.aborted)throw error;imageError='这次配图暂时没生成出来，讲解文字已经保留。';}
-    }
-    const at=new Date().toISOString();session.messages.push({role:'assistant',content:result,agentName,at,...(generatedImageRef?{generatedImageRef}:{}),...(feedback?{feedback}:{})});session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);put(`session:${id}`,session);
+    const at=new Date().toISOString(),imageJobId=withImage.prompt&&imageGeneration.configured&&!media?randomUUID():null,messageIndex=session.messages.length;
+    const assistantMessage={role:'assistant',content:result,agentName,at,...(imageJobId?{imageJob:{id:imageJobId,status:'pending'}}:{}),...(feedback?{feedback}:{})};
+    session.messages.push(assistantMessage);session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);put(`session:${id}`,session);
+    if(imageJobId){put(`image-job:${imageJobId}`,{sessionId:id,messageIndex,status:'pending',createdAt:at});startImageJob({jobId:imageJobId,userId:user.id,sessionId:id,messageIndex,prompt:withImage.prompt});}
     const learning=get('learning',{});learning.helpEvents||=[];const q=learning.questions.find(q=>q.id===session.questionId);learning.helpEvents.push({id:randomUUID(),sessionId:id,at,subject:q?.subject||'待识别',topic:q?.topic||'未标注',questionId:q?.id||null,action:reveal?'reviewed_solution':'asked_for_help'});put('learning',learning);
     if(q){const support=get(`support:${q.id}`,{hintsUsed:0});put(`support:${q.id}`,{...support,hintsUsed:support.hintsUsed+1,solutionSeen:support.solutionSeen||reveal});}
-    const imageUrl=generatedImageRef?`/api/sessions/${id}/images/${session.messages.length-1}`:null;
-    return send(res,200,{sessionId:id,text:result,agentName,hints:session.hints,feedback,imageUrl,imageError});
+    return send(res,200,{sessionId:id,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId});
    }catch{const error='这次讲解未完成，请稍后重试。';session.messages.push({role:'assistant',content:error,status:'error',agentName,at:new Date().toISOString()});session.status='failed';put(`session:${id}`,session);return send(res,502,{error});}finally{clearTimeout(timeout);busy.delete(user.id);}
   }
   if(url.pathname==='/api/export')return send(res,200,{version:2,exportedAt:new Date().toISOString(),learning:get('learning',{}),memory:memory(),sessions:db.prepare('SELECT body FROM documents WHERE id LIKE ?').all(prefix+'session:%').map(row=>JSON.parse(row.body))});

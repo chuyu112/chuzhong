@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 User=zhixu-study
 Group=zhixu-study
+Environment=HOME=/var/lib/zhixu-study
 WorkingDirectory=/opt/zhixu-study/current/app
 ExecStart=/usr/local/bin/node --env-file=/etc/zhixu-study/runtime.env server/index.mjs
 Restart=always

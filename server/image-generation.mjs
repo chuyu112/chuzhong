@@ -1,22 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { parseEnv } from 'node:util';
-import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
-const ENDPOINT = 'https://api.openai.com/v1/images/generations';
-const DEFAULT_MODEL = 'gpt-image-2.5-flare';
-
-export function loadImageGenerationKey(environment = process.env) {
-  const direct = environment.OPENAI_IMAGE_API_KEY?.trim() || environment.OPENAI_API_KEY?.trim();
-  if (direct) return direct;
-  for (const file of [new URL('../.env.education.local', import.meta.url), new URL('../.env.media.local', import.meta.url)]) {
-    try {
-      const values = parseEnv(readFileSync(file, 'utf8'));
-      const key = values.OPENAI_IMAGE_API_KEY?.trim() || values.OPENAI_API_KEY?.trim();
-      if (key) return key;
-    } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  }
-  return '';
-}
+const execFileAsync = promisify(execFile);
+const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const ALLOWED_FLOVA_HOST = hostname => hostname === 'flova.tv' || hostname.endsWith('.flova.tv');
 
 export function extractGeneratedImagePrompt(raw) {
   let prompt = '';
@@ -31,47 +19,85 @@ export function extractGeneratedImagePrompt(raw) {
   return { text, prompt };
 }
 
-export function createImageGenerationService({ apiKey, model = DEFAULT_MODEL, fetchImpl = fetch, timeoutMs = 150000 } = {}) {
+function runEnvelope(stdout) {
+  const lines = String(stdout).trim().split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index].trim();
+    if (!line.startsWith('{')) continue;
+    try {
+      const envelope = JSON.parse(line);
+      if (envelope?.code === 0 && envelope.data?.status === 'completed' && envelope.data?.terminal === true) return envelope.data;
+    } catch { /* progress output is not the terminal result */ }
+  }
+  throw new Error('Flova did not return a completed image run');
+}
+
+function imageResourceUrl(result) {
+  for (const message of [...(result.assistant_messages || [])].reverse()) {
+    for (const artifact of [...(message.artifacts || [])].reverse()) {
+      if (artifact.media_type !== 'image' || artifact.status !== 'success' || typeof artifact.resource_url !== 'string') continue;
+      const url = new URL(artifact.resource_url);
+      if (url.protocol === 'https:' && ALLOWED_FLOVA_HOST(url.hostname)) return url.href;
+    }
+  }
+  throw new Error('Flova did not return a successful image resource');
+}
+
+export function createImageGenerationService({
+  projectId = '',
+  cliPath = 'flova',
+  fetchImpl = fetch,
+  execFileImpl = execFileAsync,
+  timeoutMs = 300000,
+} = {}) {
+  let queue = Promise.resolve();
+  const serialize = task => {
+    const result = queue.then(task, task);
+    queue = result.catch(() => {});
+    return result;
+  };
+
   return {
-    configured: Boolean(apiKey),
-    model,
-    async generate(prompt, userId, signal) {
-      if (!apiKey) throw new Error('图片生成暂未配置');
+    configured: Boolean(projectId),
+    model: 'Flova Image 2.5 Sunburst',
+    async generate(prompt, _userId, signal) {
+      if (!projectId) throw new Error('图片生成暂未配置');
       if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 12000) throw new Error('图片说明无效');
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      signal?.addEventListener('abort', abort, { once: true });
-      const timer = setTimeout(abort, timeoutMs);
-      try {
-        const response = await fetchImpl(ENDPOINT, {
-          method: 'POST', signal: controller.signal,
-          headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model,
-            prompt: prompt.trim(),
-            size: '1536x1024',
-            quality: 'medium',
-            output_format: 'png',
-            n: 1,
-            safety_identifier: createHash('sha256').update(String(userId)).digest('hex'),
-          }),
-        });
-        if (!response.ok) throw new Error('图片服务暂时无法完成生成');
-        const result = await response.json();
-        const encoded = result?.data?.[0]?.b64_json;
-        if (typeof encoded !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length > 32 * 1024 * 1024) {
-          throw new Error('图片服务返回了无效结果');
+      return serialize(async () => {
+        if (signal?.aborted) throw new Error('图片生成已取消');
+        try {
+          const content = [
+            'Generate exactly one static educational image using Flova Image 2.5 Sunburst.',
+            'Do not make a video, audio, or other media. Follow the learning image prompt accurately, preserve all facts, formulas, examples, and spatial relationships, and keep any visible text legible.',
+            'Create a fresh standalone learning image for this request; do not reuse or modify earlier project assets.',
+            `Learning image prompt:\n${prompt.trim()}`,
+          ].join('\n\n');
+          const { stdout } = await execFileImpl(cliPath, [
+            'run', projectId, '--content', content,
+            '--timeout', String(Math.max(1, Math.ceil(timeoutMs / 1000))), '--no-color',
+          ], {
+            encoding: 'utf8', maxBuffer: 6 * 1024 * 1024,
+            timeout: timeoutMs, signal,
+          });
+          if (signal?.aborted) throw new Error('图片生成已取消');
+          const url = imageResourceUrl(runEnvelope(stdout));
+          const response = await fetchImpl(url, { signal, cache: 'no-store' });
+          if (!response.ok) throw new Error('Flova image download failed');
+          const finalUrl = new URL(response.url || url);
+          if (finalUrl.protocol !== 'https:' || !ALLOWED_FLOVA_HOST(finalUrl.hostname)) throw new Error('Unexpected Flova image host');
+          const mimeType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase();
+          if (!ALLOWED_IMAGE_TYPES.has(mimeType)) throw new Error('Flova returned an unsupported image type');
+          const declaredSize = Number(response.headers.get('content-length') || 0);
+          if (declaredSize > MAX_IMAGE_BYTES) throw new Error('Flova image is too large');
+          const buffer = Buffer.from(await response.arrayBuffer());
+          if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) throw new Error('Flova image is too large');
+          return { buffer, mimeType };
+        } catch (error) {
+          if (signal?.aborted || error?.name === 'AbortError') throw new Error('图片生成已取消');
+          if (error?.code === 'ETIMEDOUT' || error?.killed) throw new Error('图片生成超时');
+          throw new Error('图片生成暂时失败');
         }
-        const buffer = Buffer.from(encoded, 'base64');
-        if (!buffer.length || buffer.length > 24 * 1024 * 1024) throw new Error('生成的图片大小无效');
-        return { buffer, mimeType: 'image/png' };
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        throw new Error(controller.signal.aborted ? '图片生成超时' : '图片生成暂时失败');
-      } finally {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', abort);
-      }
+      });
     },
   };
 }
