@@ -46,3 +46,54 @@ test('tutor accepts a multi-page photo set and requests automatic visuals for En
   assert.match(received.context.systemPrompt, /英语语法、单词/);
   assert.match(received.context.systemPrompt, /<learning-image>/);
 });
+
+test('Pi restores the previous explanation when a student follows up', async () => {
+  const session = { id: 'follow-up-runtime', hints: 0, messages: [] };
+  const memory = buildStudentMemory({ questions: [], attempts: [] });
+  const question = '3x+5=20，第一步怎么想？';
+  const explanation = await runTutor({
+    session, text: question, modelId: 'glm-5.3-flash', environment: {}, memory,
+    runModelOverride: async () => '把等式看作天平，两边一起减去 5。',
+  });
+  session.messages.push({ role: 'user', content: question }, { role: 'assistant', content: explanation });
+  session.hints++;
+  let received;
+  const reply = await runTutor({
+    session, text: '为什么两边都要减？', modelId: 'glm-5.3-flash', environment: {}, memory,
+    runModelOverride: async ({ context }) => {
+      received = context;
+      return '两边做相同的操作，等式才继续保持相等。';
+    },
+  });
+  const transcript = received.messages.map(message => ({ role: message.role, text: JSON.stringify(message.content) }));
+  assert.ok(transcript.some(message => message.role === 'user' && message.text.includes(question)));
+  assert.ok(transcript.some(message => message.role === 'assistant' && message.text.includes(explanation)));
+  assert.ok(transcript.some(message => message.role === 'user' && message.text.includes('为什么两边都要减')));
+  assert.equal(reply, '两边做相同的操作，等式才继续保持相等。');
+});
+
+test('cancelling a Pi reply aborts the model request and permits the next turn', { timeout: 5000 }, async () => {
+  const controller = new AbortController();
+  const memory = buildStudentMemory({ questions: [], attempts: [] });
+  const session = { id: 'cancel-runtime', hints: 0, messages: [] };
+  let started, modelSignal;
+  const modelStarted = new Promise(resolve => { started = resolve; });
+  const pending = runTutor({
+    session, text: '讲讲二次函数', modelId: 'glm-5.3-flash', environment: {}, memory, signal: controller.signal,
+    runModelOverride: ({ signal }) => new Promise((resolve, reject) => {
+      modelSignal = signal;
+      signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true });
+      started();
+    }),
+  });
+  const rejected = assert.rejects(pending, error => error.name === 'AbortError');
+  await modelStarted;
+  controller.abort();
+  await rejected;
+  assert.equal(modelSignal.aborted, true);
+  const reply = await runTutor({
+    session, text: '先说说图像吧', modelId: 'glm-5.3-flash', environment: {}, memory,
+    runModelOverride: async () => '二次函数的图像是一条抛物线。',
+  });
+  assert.equal(reply, '二次函数的图像是一条抛物线。');
+});

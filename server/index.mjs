@@ -4,6 +4,7 @@ import { resolve, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
+import { VERSION as piVersion } from '@earendil-works/pi-coding-agent';
 import { loadModelEnvironment, availableModels } from './config.mjs';
 import { runTutor, canReveal } from './tutor.mjs';
 import { createImageGenerationService, extractGeneratedImagePrompt } from './image-generation.mjs';
@@ -110,7 +111,7 @@ const server=createServer(async(req,res)=>{
   const appearance=()=>{const value={...defaultAppearance,...get('appearance',{})};return {...value,voiceName:resolveVoice(value.voiceName)};};
   if(url.pathname==='/api/appearance'&&req.method==='GET')return send(res,200,appearance());
   if(url.pathname==='/api/appearance'&&req.method==='POST'){const settings=validateAppearance({...appearance(),...await body(req,1500000)});put('appearance',settings);return send(res,200,settings);}
-  if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion:'1.1.0',mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,longTermMemory:true});
+  if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion,mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,longTermMemory:true});
   if(url.pathname==='/api/learning'&&req.method==='GET'){const learning=get('learning',{});return send(res,200,{...learning,questions:learning.questions.map(publicQuestion)});}
   if(url.pathname==='/api/memory'&&req.method==='GET')return send(res,200,memory());
   if(url.pathname==='/api/sessions'&&req.method==='GET'){
@@ -213,5 +214,5 @@ const server=createServer(async(req,res)=>{
   return send(res,200,readFileSync(path),type);
  }catch(error){if(!res.headersSent)send(res,error.status||500,{error:error.status?error.message:'请求处理失败，请重试'});}
 });
-server.listen(port,host,()=>console.log(`知序教育已启动：http://${host}:${server.address().port} · 已配置模型 ${models.filter(m=>m.configured).length}/${models.length} · Pi 1.1.0`));
+server.listen(port,host,()=>console.log(`知序教育已启动：http://${host}:${server.address().port} · 已配置模型 ${models.filter(m=>m.configured).length}/${models.length} · Pi ${piVersion}`));
 for(const s of ['SIGINT','SIGTERM'])process.on(s,()=>server.close(()=>{db.close();process.exit(0);}));
