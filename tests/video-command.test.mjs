@@ -20,6 +20,13 @@ test('video slash command is explicit, supports current/new topics and loads onl
   }
   assert.equal(parseVideoCommand('/视频生成 靖康之耻').currentTopic, false);
   assert.equal(parseVideoCommand('/生成视频 英语点餐').instruction, '英语点餐');
+  for (const text of ['这个话题 /生成视频', '把刚才的话题做成一个视频\n/视频生成', '这个话题，／生成视频。']) {
+    assert.equal(parseVideoCommand(text).currentTopic, true); assert.equal(wantsLearningVideo(text), true);
+  }
+  const pastedLesson = "A: That's a fair point.\nB: I hadn't thought of that.\n\n这个话题";
+  assert.equal(parseVideoCommand(pastedLesson + ' /生成视频').instruction, pastedLesson);
+  assert.equal(parseVideoCommand(pastedLesson + ' /生成视频').currentTopic, false);
+  for (const text of ['请不要 /生成视频', '先别执行 /视频生成', '什么是 /生成视频', '示例： /生成视频', '输入 /生成视频', '“/生成视频”', '```\n/生成视频']) assert.equal(parseVideoCommand(text), null);
   for (const text of ['什么是/视频生成', '不要/视频生成', '/视频生成器', '“/视频生成”是什么意思', '不要/生成视频', '/生成视频是什么', '生成视频']) assert.equal(parseVideoCommand(text), null);
   const skill = loadXiaozhiVideoSkill();
   assert.equal(skill.name, 'xiaozhi-video'); assert.match(skill.sha256, /^[a-f0-9]{64}$/);
@@ -49,6 +56,10 @@ test('a bare command uses the lesson and skips legacy command corrections and re
   assert.deepEqual(videoPlanningSession(branch).messages.map(message => message.content), [
     ...lesson.map(message => message.content), 'another是什么意思？', 'another是再一个，这里是再要一杯。',
   ], 'retain the main lesson together with useful branches so the planner can synthesize them');
+  const pasted = "A: I see your point.\nB: That's fair.\n这个话题";
+  const inline = { ...session, messages: [...session.messages, { role: 'user', content: pasted + ' /生成视频' }, { role: 'assistant', content: '已经开始制作' }] };
+  assert.equal(videoPlanningSession(inline).messages.at(-1).content, pasted, 'keep pasted dialogue and omit the command receipt');
+  assert.ok(!videoPlanningSession(inline).messages.some(m => m.content === '已经开始制作'));
 });
 
 test('slash command creates a durable background task, deduplicates and keeps chat usable', { timeout: 20000 }, async () => {
@@ -84,6 +95,7 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     const chat = (account, data) => fetch(base + '/api/chat', { method: 'POST', headers: { 'content-type': 'application/json', cookie: account.cookie }, body: JSON.stringify({ modelId: 'glm-5.3-flash', ...data }), signal: AbortSignal.timeout(2500) });
     assert.equal((await chat(other, { text: '/视频生成', sessionId: 'topic' })).status, 403);
     assert.equal((await chat(other, { text: '/生成视频', sessionId: 'topic' })).status, 403);
+    assert.equal((await chat(other, { text: '这个话题 /生成视频', sessionId: 'topic' })).status, 403);
     assert.equal((await chat(owner, { text: '/视频生成', sessionId: 'empty' })).status, 400);
     db = new DatabaseSync(join(directory, 'education.sqlite'));
     const session = { id: 'topic', hints: 1, messages: [{ role: 'user', content: '靖康之耻' }, { role: 'assistant', content: '1127年徽钦二帝被俘，北宋灭亡，同年赵构即位建立南宋。' }, { role: 'user', content: '/生成视频' }, { role: 'assistant', content: '旧版命令格式提示不应该成为视频主题' }] };
@@ -132,6 +144,17 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     assert.equal(stillPending.resumedVideoJob.id, 'repeat-job');
     assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 3);
     assert.equal(JSON.parse(db.prepare('SELECT body FROM documents WHERE id=?').get(`u:${owner.user.id}:video-job:repeat-job`).body).attempts.length, 1);
+    const pastedText = "A: I see your point.\nB: That's fair.\n这个话题 /生成视频";
+    const pastedResponse = await chat(owner, { text: pastedText, sessionId: 'pasted-lesson' });
+    assert.equal(pastedResponse.status, 202, 'a suffix command returns a real task, never a tutoring promise');
+    const pastedResult = await pastedResponse.json();
+    assert.equal(pastedResult.videoJob.status, 'pending');
+    const pastedSaved = JSON.parse(db.prepare('SELECT body FROM documents WHERE id=?').get(`u:${owner.user.id}:session:pasted-lesson`).body);
+    assert.equal(pastedSaved.messages[pastedResult.messageIndex].videoJob.id, pastedResult.videoJob.id);
+    assert.equal(videoPlanningSession(pastedSaved).messages.at(-1).content, pastedText.replace(' /生成视频', ''));
+    const pastedRepeat = await (await chat(owner, { text: pastedText, sessionId: 'pasted-lesson' })).json();
+    assert.equal(pastedRepeat.resumedVideoJob.id, pastedResult.videoJob.id);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 4);
   } finally {
     if (child.exitCode === null) await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); });
     model.closeAllConnections(); await new Promise(resolve => model.close(resolve)); db?.close();
