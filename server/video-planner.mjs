@@ -1,5 +1,5 @@
 import { runTutor } from './tutor.mjs';
-import { extractVideoBrief, buildVideoPrompt } from './video-prompt.mjs';
+import { extractVideoBrief, buildVideoPrompt, VIDEO_SKILL_INFO } from './video-prompt.mjs';
 
 // This stage is read-only with respect to the student's conversation. The caller
 // persists the approved brief before submitting exactly one provider job.
@@ -13,7 +13,7 @@ export async function planLearningVideo({ session, modelId, environment, memory,
     });
     const result = extractVideoBrief(raw);
     if (result.brief) {
-      try { return { brief: result.brief, prompt: buildVideoPrompt(result.brief) }; } catch { /* Repair an overlong brief before any paid submission. */ }
+      try { return { brief: result.brief, prompt: buildVideoPrompt(result.brief), skill: VIDEO_SKILL_INFO }; } catch { /* Repair an overlong brief before any paid submission. */ }
     }
   }
   throw new Error('这次视频讲解没有整理完整，请稍后重试。');

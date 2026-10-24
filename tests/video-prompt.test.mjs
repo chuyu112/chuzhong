@@ -59,11 +59,13 @@ test('the planner uses the existing conversation and repairs an invalid brief be
   const result = await planLearningVideo({ session, modelId: 'glm-5.3-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async ({ context }) => {
     calls++;
     assert.match(JSON.stringify(context.messages), /靖康之耻/);
-    assert.match(context.systemPrompt, /不展示制作提示词|不要展示制作提示词/);
+    assert.match(context.systemPrompt, /已加载技能：xiaozhi-video/);
     return calls === 1 ? '<learning-video>{}</learning-video>' : '<learning-video>' + JSON.stringify(brief) + '</learning-video>';
   } });
   assert.equal(calls, 2);
   assert.equal(result.brief.title, '靖康之耻');
+  assert.equal(result.skill.name, 'xiaozhi-video');
+  assert.match(result.skill.sha256, /^[a-f0-9]{64}$/);
   assert.match(result.prompt, /480p/);
   assert.deepEqual(session, before);
 });

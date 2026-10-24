@@ -13,6 +13,7 @@ import { createVideoJobs } from './video-jobs.mjs';
 import { planLearningVideo } from './video-planner.mjs';
 import { wantsLearningVideo, extractVideoBrief } from './video-prompt.mjs';
 import { sendSessionVideo } from './video-delivery.mjs';
+import { parseVideoCommand, queueVideoCommand } from './video-command.mjs';
 import { samples, grade, variant } from '../dist/core.js';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
 import { defaultAppearance, validateAppearance } from './appearance.mjs';
@@ -189,6 +190,13 @@ const server=createServer(async(req,res)=>{
    const profile=get('profile',defaultProfile),agentName=appearance().agentName;
    const session=get(`session:${id}`,{id,hints:0,messages:[{role:'assistant',kind:'greeting',content:welcomeMessage(profile,agentName),agentName,at:new Date().toISOString()}],attempt:''});
    const requestedImages=imageInputs(input);
+   if(parseVideoCommand(text)){
+    if(requestedImages.length)return send(res,400,{error:'请先发送作业图片并完成讲解，再输入 /视频生成。'});
+    if(!videoGeneration.configured)return send(res,503,{error:'视频生成暂未配置'});
+    const model=models.find(m=>m.id===input.modelId&&m.configured);if(!model)return send(res,503,{error:'请先选择已配置模型'});
+    const result=queueVideoCommand({text,session,userId:user.id,modelId:model.id,agentName,save:value=>put(`session:${id}`,value),jobs:videoJobs});
+    return send(res,202,result);
+   }
    const nickname=!requestedImages.length&&!input.reveal&&!input.media?nicknameFromMessage(text,!hasNickname(profile)&&!profile.nicknameAsked&&session.messages.at(-1)?.kind==='greeting'):null;
    if(nickname){
     profile.displayName=nickname;profile.nicknameConfirmed=true;profile.nicknameAsked=true;put('profile',profile);

@@ -20,7 +20,7 @@ manifest = json.loads((BANK / 'download-manifest.json').read_text())
 papers = [p for p in manifest['papers'] if p['status'] == 'downloaded']
 entries = []
 
-for name in ['server', 'dist', 'vendor', 'scripts/copy-assets.mjs', 'package.json', 'package-lock.json']:
+for name in ['server', 'dist', 'vendor', 'skills', 'scripts/copy-assets.mjs', 'package.json', 'package-lock.json']:
     source = ROOT / name
     for file in sorted(source.rglob('*')) if source.is_dir() else [source]:
         if file.is_file() and file.name != '.DS_Store':

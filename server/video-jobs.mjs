@@ -32,7 +32,7 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
         if (!session || session.messages?.[job.messageIndex]?.videoJob?.id !== id) throw new Error('missing message');
         if (!job.prompt) {
           const planned = await plan({ ...session, messages: session.messages.slice(0, job.messageIndex + 1) }, job);
-          update(job, { prompt: planned.prompt, title: planned.brief.title });
+          update(job, { prompt: planned.prompt, title: planned.brief.title, ...(planned.skill ? { skill: planned.skill } : {}) });
         }
         if (!job.projectId) update(job, { projectId: await provider.createProject(id) });
         if (!job.nodeId) update(job, { nodeId: await provider.createNode(job.projectId, id, job.prompt) });
