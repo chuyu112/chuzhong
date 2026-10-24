@@ -42,7 +42,7 @@ export function createVideoUI({ api, getState, stopSpeech }) {
             const result = await api('/api/video-jobs/' + encodeURIComponent(job.id), undefined, { signal: AbortSignal.timeout(15000) });
             if (!message.isConnected || getState().sessionId !== sessionId) return;
             if (result.status === 'completed' && result.videoUrl) { finish(result.videoUrl); return; }
-            if (result.status === 'failed') { status('这次视频没生成成功。你可以说“重试”，或“换个模型重试”。', true); return; }
+            if (result.status === 'failed') { status(result.videoError || '这次视频没生成成功。你可以说“重试”，或“换个模型重试”。', true); return; }
           } catch { /* transient network errors do not restart paid generation */ }
           await new Promise(resolve => setTimeout(resolve, 4000));
         }
@@ -52,7 +52,7 @@ export function createVideoUI({ api, getState, stopSpeech }) {
     if (job?.id) watchers.set(sessionId + ':' + job.id, { message, resume: updated => { job = updated; void watch(); } });
     if (saved.videoUrl) finish(saved.videoUrl);
     else if (job?.status === 'pending') void watch();
-    else if (job?.status === 'failed') { button.disabled = true; status('这次视频没生成成功。你可以说“重试”，或“换个模型重试”。', true); }
+    else if (job?.status === 'failed') { button.disabled = true; status(saved.videoError || '这次视频没生成成功。你可以说“重试”，或“换个模型重试”。', true); }
     else if (saved.videoError) status(saved.videoError, true);
   }
   return { attach, resume(job, sessionId) { if (job?.id) watchers.get(sessionId + ':' + job.id)?.resume(job); } };

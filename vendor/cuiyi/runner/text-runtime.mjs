@@ -1398,6 +1398,11 @@ export async function runOpenAIResponsesModel(job, prompt, options = {}) {
   // forced function tool_choice while thinking, but still supports tool_choice=auto
   // and reliably follows the required-tool instruction in the prompt.
   const canForceRequiredTool = !providerModelId.startsWith("deepseek-");
+  // Structured video scripts include bilingual lines, timing and word analysis.
+  // Their output budget is separate from the plain-chat default and input context.
+  if (options.maxOutputTokens !== undefined && (!Number.isInteger(options.maxOutputTokens) || options.maxOutputTokens < 1 || options.maxOutputTokens > 32768)) {
+    throw new RangeError("maxOutputTokens must be an integer between 1 and 32768");
+  }
   const images = permittedModelImages(job, options);
   const timeoutMs = textModelTimeoutMs(job, prompt, env);
   const configuredEffort = textReasoningEffort(providerModelId, streamingReview ? "reasoning" : responseMode, reasoningEffortOverride);
@@ -1422,9 +1427,9 @@ export async function runOpenAIResponsesModel(job, prompt, options = {}) {
         // Responses budgets include reasoning and structured tool arguments.
         // Nine-question registration/media preparation must not share the small
         // plain-chat cap; increasing the ceiling does not trigger a retry.
-        max_output_tokens: isGpt6Astra || (job.agentRole === "creator" && !job.channelId &&
+        max_output_tokens: options.maxOutputTokens ?? (isGpt6Astra || (job.agentRole === "creator" && !job.channelId &&
           (tools.length > 0 || job.creativeInterview?.active === true))
-          ? 16384 : isPosterCreatorJob(job) || responseMode === "reasoning" ? 8192 : 4096,
+          ? 16384 : isPosterCreatorJob(job) || responseMode === "reasoning" ? 8192 : 4096),
         ...(tools.length ? {
           tools: tools.map((tool) => ({
             type: "function",

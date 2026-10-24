@@ -52,3 +52,7 @@ body .student-avatar.has-custom-avatar{background-size:cover;background-position
 @keyframes media-progress-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.media-progress-spinner{animation:none}}
 @media(max-width:600px){.message .media-progress{padding:14px;gap:12px;border-radius:13px}.message .media-progress-copy strong{font-size:16px}}
+
+/* Keep the compact composer at the viewport edge, above the device safe area. */
+.chat-home{min-height:0}.chat-home .composer-wrap{display:flex;flex-direction:column;padding-bottom:max(4px,env(safe-area-inset-bottom))}.chat-home .hint-line{order:-1;margin:0 0 4px}.chat-home .composer{padding:10px 20px 8px}.chat-home .composer textarea{display:block;height:34px;min-height:34px;padding:4px 0;line-height:1.5}.chat-home .composer-actions{margin-top:4px}
+@media(max-width:700px){.chat-home .composer{padding:8px 15px}.chat-home .composer textarea{height:34px;min-height:34px}}

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseVideoCommand, videoPlanningSession } from '../server/video-command.mjs';
 import { wantsLearningVideo } from '../server/video-prompt.mjs';
@@ -93,7 +94,7 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     const stored = JSON.parse(db.prepare('SELECT body FROM documents WHERE id=?').get(`u:${owner.user.id}:session:topic`).body);
     assert.equal(stored.messages[5].videoJob.id, result.videoJob.id); assert.equal(stored.messages[5].videoCommand.anchor, 1); assert.equal(stored.status, 'completed');
     const repeated = await (await chat(owner, { text: '/视频生成', sessionId: 'topic' })).json();
-    assert.equal(repeated.videoJob.id, result.videoJob.id);
+    assert.equal(repeated.resumedVideoJob.id, result.videoJob.id);
     const oldButton=await fetch(base+'/api/sessions/topic/videos/1',{method:'POST',headers:{cookie:owner.cookie,'content-type':'application/json'},body:JSON.stringify({modelId:'glm-5.3-flash'})});
     assert.equal(oldButton.status,410);
     assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 1);
@@ -112,6 +113,25 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     const afterRetry = JSON.parse(db.prepare('SELECT body FROM documents WHERE id=?').get(`u:${owner.user.id}:session:failed-topic`).body);
     assert.equal(afterRetry.messages.at(-1).kind, 'video-retry'); assert.equal(afterRetry.messages[1].videoJob.status, 'pending');
     assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 2, 'retry reuses the seeded task');
+
+    const repeatedSession = { id: 'repeat-failed', messages: [{ role: 'user', content: '/视频生成 心脏' }, { role: 'assistant', content: '旧任务回执', videoCommand: { key: createHash('sha256').update(JSON.stringify([-1, '心脏'])).digest('hex'), anchor: -1 }, videoJob: { id: 'repeat-job', status: 'failed' }, videoError: '旧的失败信息' }] };
+    const repeatedJob = { ...failedJob, id: 'repeat-job', sessionId: repeatedSession.id, error: '旧的失败信息' };
+    for (const [id, value] of [['session:repeat-failed', repeatedSession], ['video-job:repeat-job', repeatedJob]]) db.prepare('INSERT INTO documents VALUES(?,?)').run(`u:${owner.user.id}:${id}`, JSON.stringify(value));
+    const repeatedFailed = await chat(owner, { text: '/生成视频 心脏', sessionId: repeatedSession.id });
+    assert.equal(repeatedFailed.status, 202);
+    const restarted = await repeatedFailed.json();
+    assert.equal(restarted.resumedVideoJob?.id, 'repeat-job', 'the repeated command must retry the old failed task');
+    assert.equal(restarted.resumedVideoJob.status, 'pending');
+    assert.equal(restarted.videoJob, undefined, 'the new receipt must not duplicate the video attachment');
+    const readRepeated = () => JSON.parse(db.prepare('SELECT body FROM documents WHERE id=?').get(`u:${owner.user.id}:session:repeat-failed`).body);
+    assert.equal(readRepeated().messages[1].videoError, undefined);
+    assert.equal(readRepeated().messages[1].videoJob.status, 'pending');
+    assert.equal(readRepeated().messages.at(-1).videoRetry.jobId, 'repeat-job');
+    assert.equal(readRepeated().messages.at(-2).content, '/生成视频 心脏');
+    const stillPending = await (await chat(owner, { text: '/视频生成 心脏', sessionId: repeatedSession.id })).json();
+    assert.equal(stillPending.resumedVideoJob.id, 'repeat-job');
+    assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 3);
+    assert.equal(JSON.parse(db.prepare('SELECT body FROM documents WHERE id=?').get(`u:${owner.user.id}:video-job:repeat-job`).body).attempts.length, 1);
   } finally {
     if (child.exitCode === null) await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); });
     model.closeAllConnections(); await new Promise(resolve => model.close(resolve)); db?.close();

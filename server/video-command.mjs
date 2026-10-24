@@ -33,7 +33,7 @@ export function videoPlanningSession(session) {
 
 // This is a command, not another tutoring round. Persist a short receipt and
 // return the background job immediately, without awaiting the planning model.
-export function queueVideoCommand({ text, session, userId, modelId, agentName, save, jobs }) {
+export async function queueVideoCommand({ text, session, userId, modelId, agentName, load, save, jobs }) {
   const command = parseVideoCommand(text);
   if (!command) throw Object.assign(new Error('无效的视频指令'), { status: 400 });
   const anchor = learningTurns(session).findLast(turn => turn.message.role === 'assistant')?.index ?? -1;
@@ -41,6 +41,21 @@ export function queueVideoCommand({ text, session, userId, modelId, agentName, s
   const key = createHash('sha256').update(JSON.stringify([anchor, command.currentTopic ? '' : command.instruction])).digest('hex');
   // Repeated commands for the same topic refer to the original paid task.
   let index = session.messages.findIndex(message => message.videoCommand?.key === key && message.videoJob);
+  if (index >= 0) {
+    const id = session.messages[index].videoJob.id;
+    // An explicit repeat may retry a failed task. The job manager first checks
+    // uncertain remote submissions, and reuses pending/completed work as-is.
+    const { videoJob } = await jobs.retry(userId, id, modelId);
+    const latest = load(), at = new Date().toISOString();
+    const reply = videoJob.status === 'completed'
+      ? '视频已经做好了，就在原来的视频消息下面。'
+      : '收到，继续处理这个视频，完成后放回原来的消息下面。';
+    latest.messages.push({ role: 'user', content: text, at });
+    const messageIndex = latest.messages.length;
+    latest.messages.push({ role: 'assistant', content: reply, agentName, at, kind: 'video-retry', videoRetry: { jobId: id } });
+    latest.status = 'completed'; save(latest);
+    return { sessionId: latest.id, messageIndex, text: reply, agentName, hints: latest.hints || 0, resumedVideoJob: videoJob };
+  }
   if (index < 0) {
     const at = new Date().toISOString();
     session.messages.push({ role: 'user', content: text, at });

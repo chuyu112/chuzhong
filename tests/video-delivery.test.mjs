@@ -79,16 +79,19 @@ test('video appears last, survives reload, streams ranges and respects student/f
     assert.equal((await other.request.get(familyUrl, { headers: { range: 'bytes=0-9' } })).status(), 206);
     // Retry stays in ordinary chat. The original attachment resumes without
     // adding action buttons or duplicating the video on the retry receipt.
-    delete session.messages[3].generatedVideoRef; session.messages[3].videoJob.status = 'failed'; save();
+    const scriptError = '视频脚本写到一半被截断，还没有开始生成视频。你可以说“重试”，或“换个模型重试”。';
+    delete session.messages[3].generatedVideoRef; session.messages[3].videoJob.status = 'pending'; save();
     await page.unroute('**/api/chat'); await page.unroute('**/api/video-jobs/test-video-job');
     let retried = false;
-    await page.route('**/api/video-jobs/test-video-job', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(retried ? { status: 'completed', videoUrl: '/api/sessions/video-lesson/videos/3' } : { status: 'failed' }) }));
+    await page.route('**/api/video-jobs/test-video-job', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(retried ? { status: 'completed', videoUrl: '/api/sessions/video-lesson/videos/3' } : { status: 'failed', videoError: scriptError }) }));
     await page.route('**/api/chat', async route => {
       assert.equal(route.request().postDataJSON().text, '换个模型再试一次'); retried = true;
       session.messages[3].videoJob.status = 'completed'; session.messages[3].generatedVideoRef = { filename, mimeType: 'video/mp4' }; save();
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ sessionId: session.id, messageIndex: 5, text: '好，我换个模型整理脚本，再试一次。', resumedVideoJob: { id: 'test-video-job', status: 'pending' } }) });
     });
-    await page.reload(); await page.getByText('这次视频没生成成功。你可以说“重试”，或“换个模型重试”。', { exact: true }).waitFor();
+    await page.reload(); await page.getByText(scriptError, { exact: true }).waitFor();
+    session.messages[3].videoJob.status = 'failed'; session.messages[3].videoError = scriptError; save();
+    await page.reload(); await page.getByText(scriptError, { exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: /重试/ }).count(), 0);
     await page.screenshot({ path: path.join(root, 'artifacts/video-retry-conversation.png') });
     await page.locator('#chat-input').fill('换个模型再试一次'); await page.locator('#send-chat').click();

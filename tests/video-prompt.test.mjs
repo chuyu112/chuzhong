@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildVideoPrompt, extractVideoBrief, validateVideoBrief, wantsLearningVideo } from '../server/video-prompt.mjs';
+import { buildVideoPrompt, extractVideoBrief, inspectVideoBrief, validateVideoBrief, wantsLearningVideo, VIDEO_BRIEF_MAX_CHARACTERS } from '../server/video-prompt.mjs';
 import { tutorPolicy } from '../server/tutor.mjs';
 import { planLearningVideo } from '../server/video-planner.mjs';
 import { buildStudentMemory } from '../server/memory.mjs';
@@ -95,4 +95,27 @@ test('video repair receives the rejected draft and exact field failure', async (
 
 test('model call failures preserve a safe diagnostic code without provider secrets', async () => {
   await assert.rejects(planLearningVideo({ session: { id: 'failure', hints: 0, messages: [] }, modelId: 'glm-5.3-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async () => { throw new Error('private-provider-details'); } }), error => error.code === 'VIDEO_MODEL_REQUEST_FAILED' && !JSON.stringify(error).includes('private-provider-details') && !error.message.includes('private-provider-details'));
+});
+
+test('structured scripts allow twenty thousand characters while provider prompts stay within three thousand', () => {
+  assert.equal(VIDEO_BRIEF_MAX_CHARACTERS, 20000);
+  const wrap = length => '<learning-video>' + JSON.stringify(brief).padEnd(length, ' ') + '</learning-video>';
+  assert.ok(inspectVideoBrief(wrap(20000)).brief);
+  assert.equal(inspectVideoBrief(wrap(20001)).brief, null);
+  assert.match(inspectVideoBrief(wrap(20001)).issue, /20000/);
+  assert.ok(buildVideoPrompt(inspectVideoBrief(wrap(20000)).brief).length <= 3000);
+});
+
+test('output truncation and HTTP failures retain safe causes without leaking provider bodies', async () => {
+  for (const [cause, code, issue] of [
+    [{ code: 'MODEL_RESPONSE_LIMIT' }, 'VIDEO_SCRIPT_OUTPUT_LIMIT', /长度上限/],
+    [{ status: 429 }, 'VIDEO_MODEL_REQUEST_FAILED', /HTTP 429/],
+  ]) {
+    await assert.rejects(planLearningVideo({ session: { id: 'failure', hints: 0, messages: [] }, modelId: 'deepseek-v4-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async () => { throw Object.assign(new Error('private-provider-details'), cause); } }), error => {
+      assert.equal(error.code, code);
+      assert.match(error.diagnostics[0].issue, issue);
+      assert.ok(!JSON.stringify(error).includes('private-provider-details'));
+      return true;
+    });
+  }
 });

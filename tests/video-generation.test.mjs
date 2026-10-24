@@ -95,14 +95,17 @@ test('ordinary explanation messages cannot create a video even through the job m
   assert.throws(()=>jobs.enqueue('alice','lesson',0,'model'),{status:400});
 });
 
-test('planning failure records its stage and cannot submit a paid video', async () => {
+test('planning failures retain their cause and cannot submit a paid video', async () => {
+ for (const code of ['VIDEO_BRIEF_INVALID', 'VIDEO_SCRIPT_OUTPUT_LIMIT']) {
   const docs = new Map(), read = (key, fallback) => structuredClone(docs.get(key) ?? fallback), write = (key, value) => docs.set(key, structuredClone(value));
   write('u:alice:session:s', { id: 's', messages: [{ role: 'assistant', content: '任务回执', videoCommand: { key: 'command' } }] });
   let created = 0;
-  const jobs = createVideoJobs({ read, write, data: '/unused', provider: { configured: true, createProject: async () => { created++; } }, plan: async () => { throw Object.assign(new Error('safe error'), { code: 'VIDEO_BRIEF_INVALID', diagnostics: [{ attempt: 1, issue: 'scenes[0].narration过短' }] }); } });
+  const jobs = createVideoJobs({ read, write, data: '/unused', provider: { configured: true, createProject: async () => { created++; } }, plan: async () => { throw Object.assign(new Error('safe error'), { code, diagnostics: [{ attempt: 1, issue: 'safe diagnostic' }] }); } });
   const job = jobs.enqueue('alice', 's', 0, 'model'); await delay(10);
   const saved = jobs.get('alice', job.id);
-  assert.equal(saved.failureStage, 'planning'); assert.equal(saved.failureCode, 'VIDEO_BRIEF_INVALID');
+  assert.equal(saved.failureStage, 'planning'); assert.equal(saved.failureCode, code);
   assert.ok(saved.failedAt); assert.equal(saved.diagnostics.length, 1); assert.equal(created, 0); assert.equal(saved.submittedAt, undefined);
   assert.match(read('u:alice:session:s').messages[0].videoError, /你可以说“重试”/);
+  if (code === 'VIDEO_SCRIPT_OUTPUT_LIMIT') assert.match(saved.error, /脚本写到一半被截断/);
+ }
 });

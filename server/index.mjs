@@ -191,8 +191,11 @@ const server=createServer(async(req,res)=>{
     if(requestedImages.length)return send(res,400,{error:'请先发送作业图片并完成讲解，再输入 /视频生成。'});
     if(!videoGeneration.configured)return send(res,503,{error:'视频生成暂未配置'});
     const model=models.find(m=>m.id===input.modelId&&m.configured);if(!model)return send(res,503,{error:'请先选择已配置模型'});
-    const result=queueVideoCommand({text,session,userId:user.id,modelId:model.id,agentName,save:value=>put(`session:${id}`,value),jobs:videoJobs});
-    return send(res,202,result);
+    busy.add(user.id);
+    try{
+     const result=await queueVideoCommand({text,session,userId:user.id,modelId:model.id,agentName,load:()=>get(`session:${id}`,session),save:value=>put(`session:${id}`,value),jobs:videoJobs});
+     return send(res,202,result);
+    }finally{busy.delete(user.id);}
    }
    const nickname=!requestedImages.length&&!input.reveal&&!input.media?nicknameFromMessage(text,!hasNickname(profile)&&!profile.nicknameAsked&&session.messages.at(-1)?.kind==='greeting'):null;
    if(nickname){

@@ -67,10 +67,11 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
         // A slow provider remains pending; reopening/polling resumes this same
         // task instead of generating or charging again.
       } catch (error) {
-        const planningCodes = ['VIDEO_PLANNING_TIMEOUT', 'VIDEO_MODEL_REQUEST_FAILED', 'VIDEO_BRIEF_INVALID'];
+        const planningCodes = ['VIDEO_PLANNING_TIMEOUT', 'VIDEO_MODEL_REQUEST_FAILED', 'VIDEO_SCRIPT_OUTPUT_LIMIT', 'VIDEO_BRIEF_INVALID'];
         const failureCode = error.code === 'VIDEO_SUBTITLES_FAILED' || planningCodes.includes(error.code) ? error.code : 'VIDEO_STAGE_FAILED';
         if (error.code === 'VIDEO_SUBTITLES_FAILED') stage = 'subtitling';
-        update(job, { status: 'failed', failureStage: stage, failureCode, failedAt: new Date().toISOString(), ...(planningCodes.includes(error.code) ? { diagnostics: error.diagnostics || [] } : {}), error: '这次视频没生成成功。你可以说“重试”，或“换个模型重试”。' });
+        const reasons = { VIDEO_SCRIPT_OUTPUT_LIMIT: '视频脚本写到一半被截断，还没有开始生成视频。', VIDEO_PLANNING_TIMEOUT: '整理视频脚本超时，还没有开始生成视频。', VIDEO_MODEL_REQUEST_FAILED: '整理视频脚本时模型调用失败，还没有开始生成视频。', VIDEO_BRIEF_INVALID: '视频脚本还没整理完整，还没有开始生成视频。', VIDEO_SUBTITLES_FAILED: '视频已生成，字幕处理没完成。' };
+        update(job, { status: 'failed', failureStage: stage, failureCode, failedAt: new Date().toISOString(), ...(planningCodes.includes(error.code) ? { diagnostics: error.diagnostics || [] } : {}), error: (reasons[failureCode] || '这次视频没生成成功。') + '你可以说“重试”，或“换个模型重试”。' });
       } finally { active.delete(id); }
     })();
   }

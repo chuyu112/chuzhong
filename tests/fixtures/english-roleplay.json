@@ -1,38 +1,284 @@
 {
   "mode": "english_roleplay",
+  "teachingVersion": 2,
   "title": "点餐时多要几袋番茄酱",
-  "goal": "理解句子片段并礼貌地多要几袋番茄酱",
-  "facts": ["ketchup指番茄酱，packets指独立小袋包装。", "a few extra表示额外几份，Could I have和please使请求礼貌。"],
+  "goal": "先听懂正常对话，再慢听并理解每个词的意思和作用",
+  "facts": [
+    "ketchup指番茄酱，packets指独立小袋包装。",
+    "a few extra表示额外几份，Could I have和please使请求礼貌。"
+  ],
   "targetSentence": "Could I have a few extra ketchup packets, please?",
   "cast": [
-    {"id":"A","role":"美国年轻成年男顾客","appearance":"短棕发、蓝色衬衫，柜台左侧面对店员","voice":"清晰温和男声，标准通用美式发音"},
-    {"id":"B","role":"美国年轻成年女店员","appearance":"棕发束起、深绿制服，柜台右侧面对顾客","voice":"清晰明亮女声，标准通用美式发音"}
+    {
+      "id": "A",
+      "role": "美国成年男顾客",
+      "appearance": "短棕发、蓝衬衫，柜台左侧",
+      "voice": "温和男声，标准美式发音"
+    },
+    {
+      "id": "B",
+      "role": "美国成年女店员",
+      "appearance": "棕发束起、绿制服，柜台右侧",
+      "voice": "明亮女声，标准美式发音"
+    }
   ],
   "chunks": [
-    {"phrase":"Could I have","meaning":"我可以要……吗","action":"顾客抬眼向店员礼貌伸出空手"},
-    {"phrase":"a few extra","meaning":"额外多几份","action":"店员在已有一袋旁另摆三袋"},
-    {"phrase":"ketchup","meaning":"番茄酱","action":"近景看袋口挤出的红色番茄酱"},
-    {"phrase":"packets","meaning":"独立小袋","action":"店员逐个指向三袋独立包装"},
-    {"phrase":"please","meaning":"请，礼貌请求","action":"顾客友好点头，与店员目光交流"}
+    {
+      "phrase": "Could",
+      "meaning": "可以",
+      "usage": "用于礼貌请求",
+      "action": "友善看向店员"
+    },
+    {
+      "phrase": "I",
+      "meaning": "我",
+      "usage": "主语，提出请求的人",
+      "action": "顾客指向自己"
+    },
+    {
+      "phrase": "have",
+      "meaning": "要",
+      "usage": "此处表示请求拿取",
+      "action": "伸手示意想要酱袋"
+    },
+    {
+      "phrase": "a",
+      "meaning": "与few合用",
+      "usage": "a few表示几个",
+      "action": "示意接下来的几袋"
+    },
+    {
+      "phrase": "few",
+      "meaning": "几个",
+      "usage": "与a一起修饰复数名词",
+      "action": "指向三袋酱"
+    },
+    {
+      "phrase": "extra",
+      "meaning": "额外的",
+      "usage": "在已有数量之外",
+      "action": "将额外三袋与原有一袋分开"
+    },
+    {
+      "phrase": "ketchup",
+      "meaning": "番茄酱",
+      "usage": "说明袋内是什么",
+      "action": "展示袋口的红色番茄酱"
+    },
+    {
+      "phrase": "packets",
+      "meaning": "小袋",
+      "usage": "复数，表示多袋",
+      "action": "逐个指向三袋包装"
+    },
+    {
+      "phrase": "please",
+      "meaning": "请",
+      "usage": "使请求更礼貌",
+      "action": "顾客友好点头"
+    },
+    {
+      "phrase": "Sure",
+      "meaning": "当然可以",
+      "usage": "表示同意请求",
+      "action": "店员微笑点头"
+    },
+    {
+      "phrase": "Here",
+      "meaning": "这里",
+      "usage": "Here you go表示给你",
+      "action": "店员展示手中的酱袋"
+    },
+    {
+      "phrase": "you",
+      "meaning": "你",
+      "usage": "指接收物品的人",
+      "action": "店员看向顾客"
+    },
+    {
+      "phrase": "go",
+      "meaning": "与Here you合用",
+      "usage": "递物用语，不是叫人走",
+      "action": "店员把酱袋递给顾客"
+    }
   ],
-  "continuity":"现代美式快餐店。固定两位外国真人A顾客、B店员，柜台左为顾客右为店员。托盘有薯条和原有一袋番茄酱，店员旁有三袋额外番茄酱及一袋展示用开封酱。柔和顶灯，人物服装与左右关系不变。",
-  "scenes":[
-    {"seconds":10,"purpose":"把请求句式与额外数量对应动作","start":"两人站在柜台两侧，托盘只有一袋酱","visual":"先演示请求手势，再在原有一袋旁加入三袋；两人保持站位","camera":"双人中景固定机位，追加酱袋时稍微下移焦点","end":"托盘上原有一袋和新加三袋清楚分开","sound":"轻微包装摩擦声，无其他人声",
-      "dialogue":[
-        {"speaker":"A","start":0.3,"end":3.1,"text":"Could I have","focus":"Could I have","action":"抬头看店员，礼貌伸出空手"},
-        {"speaker":"B","start":3.5,"end":7.1,"text":"a few extra","focus":"a few extra","action":"在原有一袋旁另摆三袋番茄酱"},
-        {"speaker":"A","start":7.6,"end":9.2,"text":"please","focus":"please","action":"友好点头与店员目光交流"}
-      ]},
-    {"seconds":10,"purpose":"把番茄酱和小袋两个词对应实物","start":"托盘上两组酱袋仍分开，展示袋在店员手边","visual":"展示袋挤少量红色番茄酱到小碟，再指向三袋未开封包装","camera":"物品近景，口型出现时切回说话者面部","end":"展示碟置于一旁，三袋额外番茄酱仍在托盘右边","sound":"袋子轻响，无背景音乐",
-      "dialogue":[
-        {"speaker":"B","start":0.3,"end":2.7,"text":"ketchup","focus":"ketchup","action":"展示袋挤出红色番茄酱，镜头让酱本身清楚可见"},
-        {"speaker":"A","start":3.1,"end":5.6,"text":"packets","focus":"packets","action":"逐一指向三袋未开封的小袋包装"},
-        {"speaker":"B","start":6.1,"end":9.3,"text":"Ketchup packets.","focus":"ketchup packets","action":"把三袋靠近，展示番茄酱的独立包装"}
-      ]},
-    {"seconds":10,"purpose":"在真实交流中完整使用礼貌请求","start":"两人仍面对面，店员把三袋放回手边准备递出","visual":"顾客完整提出请求，店员自然回应并递来三袋番茄酱","camera":"双人中景，递出时手部近景再回双人","end":"顾客接过三袋番茄酱，微笑结束","sound":"低音量包装与托盘轻响",
-      "dialogue":[
-        {"speaker":"A","start":0.2,"end":6.3,"text":"Could I have a few extra ketchup packets, please?","focus":"ketchup packets","action":"看店员提出请求，说到ketchup packets时指向三袋酱"},
-        {"speaker":"B","start":6.6,"end":9.7,"text":"Sure. Here you go.","focus":"","action":"微笑，把三袋额外番茄酱递给顾客"}
-      ]}
+  "continuity": "现代美式快餐柜台，A左B右。托盘有薯条和一袋酱，店员有三袋额外酱及一袋展示用开封酱。柔和顶灯，服装与站位不变；慢演明确切回原始道具状态。",
+  "scenes": [
+    {
+      "seconds": 6,
+      "stage": "normal",
+      "purpose": "先听懂真实完整交流",
+      "start": "托盘一袋酱，另三袋在店员手边",
+      "visual": "顾客正常语速请求，店员回应并递酱",
+      "camera": "双人中景固定机位",
+      "end": "顾客接过三袋酱；切镜重演",
+      "sound": "轻微包装声，无背景人声",
+      "dialogue": [
+        {
+          "speaker": "A",
+          "start": 0.1,
+          "end": 3.7,
+          "text": "Could I have a few extra ketchup packets, please?",
+          "focus": "",
+          "action": "向店员礼貌请求，指向酱袋",
+          "translation": "请问，可以多给我几袋番茄酱吗？"
+        },
+        {
+          "speaker": "B",
+          "start": 4,
+          "end": 5.6,
+          "text": "Sure. Here you go.",
+          "focus": "",
+          "action": "微笑回应，递出三袋番茄酱",
+          "translation": "当然可以。给你。"
+        }
+      ]
+    },
+    {
+      "seconds": 9,
+      "stage": "slow",
+      "purpose": "慢速听清同一段对话",
+      "start": "明确切回托盘一袋、三袋在店员手边的起点",
+      "visual": "原样慢演请求与递酱，不再额外加三袋",
+      "camera": "双人中景固定机位",
+      "end": "递酱完成，转入逐词示范",
+      "sound": "轻微包装声，无配乐",
+      "dialogue": [
+        {
+          "speaker": "A",
+          "start": 0.1,
+          "end": 5.5,
+          "text": "Could I have a few extra ketchup packets, please?",
+          "focus": "",
+          "action": "向店员礼貌请求，指向酱袋",
+          "translation": "请问，可以多给我几袋番茄酱吗？"
+        },
+        {
+          "speaker": "B",
+          "start": 5.9,
+          "end": 8.3,
+          "text": "Sure. Here you go.",
+          "focus": "",
+          "action": "微笑回应，递出三袋番茄酱",
+          "translation": "当然可以。给你。"
+        }
+      ]
+    },
+    {
+      "seconds": 15,
+      "stage": "word_by_word",
+      "purpose": "逐词理解发音、意思和句中作用",
+      "start": "两人同侧站位，酱袋清楚可见",
+      "visual": "逐词慢读，指代自己、数量和实物，字幕解释用法",
+      "camera": "中近景固定机位，手势置于中部",
+      "end": "店员递酱，顾客微笑",
+      "sound": "轻微包装声",
+      "dialogue": [
+        {
+          "speaker": "A",
+          "start": 0.1,
+          "end": 1.1,
+          "text": "Could",
+          "focus": "Could",
+          "action": "友善看向店员"
+        },
+        {
+          "speaker": "A",
+          "start": 1.2,
+          "end": 2.2,
+          "text": "I",
+          "focus": "I",
+          "action": "顾客指向自己"
+        },
+        {
+          "speaker": "A",
+          "start": 2.3,
+          "end": 3.3,
+          "text": "have",
+          "focus": "have",
+          "action": "伸手示意想要酱袋"
+        },
+        {
+          "speaker": "A",
+          "start": 3.4,
+          "end": 4.4,
+          "text": "a",
+          "focus": "a",
+          "action": "示意接下来的几袋"
+        },
+        {
+          "speaker": "A",
+          "start": 4.5,
+          "end": 5.5,
+          "text": "few",
+          "focus": "few",
+          "action": "指向三袋酱"
+        },
+        {
+          "speaker": "A",
+          "start": 5.6,
+          "end": 6.6,
+          "text": "extra",
+          "focus": "extra",
+          "action": "将额外三袋与原有一袋分开"
+        },
+        {
+          "speaker": "A",
+          "start": 6.7,
+          "end": 7.7,
+          "text": "ketchup",
+          "focus": "ketchup",
+          "action": "展示袋口的红色番茄酱"
+        },
+        {
+          "speaker": "A",
+          "start": 7.8,
+          "end": 8.8,
+          "text": "packets",
+          "focus": "packets",
+          "action": "逐个指向三袋包装"
+        },
+        {
+          "speaker": "A",
+          "start": 8.9,
+          "end": 9.9,
+          "text": "please",
+          "focus": "please",
+          "action": "顾客友好点头"
+        },
+        {
+          "speaker": "B",
+          "start": 10,
+          "end": 11,
+          "text": "Sure",
+          "focus": "Sure",
+          "action": "店员微笑点头"
+        },
+        {
+          "speaker": "B",
+          "start": 11.1,
+          "end": 12.1,
+          "text": "Here",
+          "focus": "Here",
+          "action": "店员展示手中的酱袋"
+        },
+        {
+          "speaker": "B",
+          "start": 12.2,
+          "end": 13.2,
+          "text": "you",
+          "focus": "you",
+          "action": "店员看向顾客"
+        },
+        {
+          "speaker": "B",
+          "start": 13.3,
+          "end": 14.3,
+          "text": "go",
+          "focus": "go",
+          "action": "店员把酱袋递给顾客"
+        }
+      ]
+    }
   ]
 }

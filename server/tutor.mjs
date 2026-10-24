@@ -38,7 +38,7 @@ export async function runTutor({ session, text, modelId, image, images: inputIma
   const systemPrompt = tutorPolicy({ reveal, hints: session.hints, media, agentName, generateVisual, generateVideo, videoRequested, imagePlanning }) + (imagePlanning ? '' : memoryContext(memory)) + (imagePlanning || generateVideo ? '' : learningContext);
   const harness = await createCuiyiPiHarnessSession({ job, systemPrompt, customTools: imagePlanning || generateVideo ? [] : learningTools, runModel: runModelOverride || (async ({ prompt, context, signal: piSignal }) => {
     const provider = providerConfig(internalId, environment);
-    const options = { env: environment, signal: AbortSignal.any([signal || new AbortController().signal, piSignal || new AbortController().signal]), systemPrompt: context.systemPrompt, harnessMessages: context.messages, tools: context.tools, images, emptyRetryLimit: 0 };
+    const options = { env: environment, signal: AbortSignal.any([signal || new AbortController().signal, piSignal || new AbortController().signal]), systemPrompt: context.systemPrompt, harnessMessages: context.messages, tools: context.tools, images, emptyRetryLimit: 0, ...(generateVideo ? { maxOutputTokens: 32768 } : {}) };
     if (internalId === 'doubao-2.1') return runDoubaoResponsesModel(job, prompt, options);
     if (provider?.protocol === 'anthropic') return runAnthropicMessagesModel(job, prompt, options);
     if (provider?.protocol === 'responses' || ['deepseek-v4-flash', 'deepseek-v4-pro'].includes(internalId)) return runOpenAIResponsesModel(job, prompt, options);
