@@ -59,7 +59,7 @@ test('jobs are idempotent, private, durable and preserve messages added during g
   let submitted = 0, allowFinish = false;
   const provider = { configured: true, createProject: async () => 'project', createNode: async () => 'node', submit: async () => { submitted++; }, inspect: async () => ({ status: allowFinish ? 'completed' : 'pending' }), download: async () => ({ buffer: Buffer.from('test-mp4'), duration: 30, width: 854, height: 480 }) };
   const options = { read, write, provider, data: directory, pollMs: 1, waitMs: 20, plan: async () => ({ prompt: 'knowledge-only', brief: { title: '知识点' } }) };
-  write('u:alice:session:one', { id: 'one', messages: [{ role: 'user', content: '知识点' }, { role: 'assistant', content: '讲解' }] });
+  write('u:alice:session:one', { id: 'one', messages: [{ role: 'user', content: '知识点' }, { role: 'assistant', content: '讲解', videoCommand: { key: 'test-command', anchor: 0 } }] });
   try {
     let jobs = createVideoJobs(options);
     const job = jobs.enqueue('alice', 'one', 1, 'model');
@@ -88,4 +88,9 @@ test('jobs are idempotent, private, durable and preserve messages added during g
   jobs.recover([{ body: JSON.stringify(blocked) }]);
   jobs.start('other', blocked.id);
   assert.equal(providerCalls, 0);
+});
+
+test('ordinary explanation messages cannot create a video even through the job manager', () => {
+  const jobs=createVideoJobs({ read:()=>({messages:[{role:'assistant',content:'文字与配图'}]}), write:()=>{throw new Error('unexpected mutation');}, provider:{configured:true}, data:'/unused' });
+  assert.throws(()=>jobs.enqueue('alice','lesson',0,'model'),{status:400});
 });

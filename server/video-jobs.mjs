@@ -30,6 +30,7 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
       try {
         const session = read(sessionKey(job), null);
         if (!session || session.messages?.[job.messageIndex]?.videoJob?.id !== id) throw new Error('missing message');
+        if (!session.messages[job.messageIndex].videoCommand && !job.submittedAt) throw new Error('Video generation requires the slash command');
         if (!job.prompt) {
           const planned = await plan({ ...session, messages: session.messages.slice(0, job.messageIndex + 1) }, job);
           update(job, { prompt: planned.prompt, title: planned.brief.title, ...(planned.skill ? { skill: planned.skill } : {}) });
@@ -71,6 +72,7 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
       if (!canGenerate(userId)) throw Object.assign(new Error('视频功能暂未向此账号开放'), { status: 403 });
       const session = read(`u:${userId}:session:${sessionId}`, null), message = session?.messages?.[messageIndex];
       if (!message || message.role !== 'assistant' || message.kind || message.status === 'error') throw Object.assign(new Error('请先完成一段知识讲解'), { status: 400 });
+      if (!message.videoCommand) throw Object.assign(new Error('请在聊天中输入 /视频生成'), { status: 400 });
       // Completed, pending and uncertain failures all keep their original task.
       if (message.videoJob) { start(userId, message.videoJob.id); return message.videoJob; }
       if (!provider.configured) throw Object.assign(new Error('视频生成暂未配置'), { status: 503 });

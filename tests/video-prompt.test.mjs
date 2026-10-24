@@ -17,9 +17,9 @@ const brief = {
 };
 
 test('ordinary questions never automatically request a video', () => {
-  for (const text of ['靖康之耻', '视频是什么意思', '不要生成视频', '不用视频讲']) assert.equal(wantsLearningVideo(text), false, text);
-  for (const text of ['用视频讲讲靖康之耻', '给我做个视频', '生成一段30s的视频']) assert.equal(wantsLearningVideo(text), true, text);
-  assert.equal(wantsLearningVideo('靖康之耻', '视频'), true);
+  for (const text of ['靖康之耻', '视频是什么意思', '不要生成视频', '不用视频讲', '用视频讲讲靖康之耻', '给我做个视频', '生成一段30s的视频']) assert.equal(wantsLearningVideo(text), false, text);
+  for (const text of ['/视频生成', '/视频生成 靖康之耻']) assert.equal(wantsLearningVideo(text), true, text);
+  assert.equal(wantsLearningVideo('靖康之耻', '视频'), false);
 });
 
 test('only a complete 30-second brief becomes a generation prompt; metadata is hidden', () => {

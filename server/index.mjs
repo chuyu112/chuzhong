@@ -147,12 +147,8 @@ const server=createServer(async(req,res)=>{
   }
   const videoRoute=/^\/api\/sessions\/([\w-]{1,80})\/videos\/(\d{1,6})$/.exec(url.pathname);
   if(videoRoute&&['GET','HEAD'].includes(req.method))return sendSessionVideo(req,res,send,data,user.id,get(`session:${videoRoute[1]}`,null),Number(videoRoute[2]));
-  if(videoRoute&&req.method==='POST'){
-   if(!canGenerateVideo(user.id))return send(res,403,{error:'视频功能暂未向此账号开放'});
-   const input=await body(req,10000),model=models.find(m=>m.id===input.modelId&&m.configured);if(!model)return send(res,503,{error:'请先选择已配置模型'});
-   if(busy.has(user.id))return send(res,409,{error:'等这轮讲解完成后再生成视频'});
-   const job=videoJobs.enqueue(user.id,videoRoute[1],Number(videoRoute[2]),model.id);return send(res,202,{videoJob:job});
-  }
+  if(videoRoute&&req.method==='POST')return send(res,410,{error:'视频生成入口已改为聊天命令，请输入 /视频生成。'});
+
   if(url.pathname.startsWith('/api/sessions/')&&req.method==='GET'){
    const id=url.pathname.split('/').at(-1);if(!/^[\w-]{1,80}$/.test(id))return send(res,400,{error:'无效会话'});
    return send(res,200,publicSession(get(`session:${id}`,{id,hints:0,messages:[{role:'assistant',kind:'greeting',content:welcomeMessage(get('profile',defaultProfile),appearance().agentName),agentName:appearance().agentName,at:new Date().toISOString()}]}),`/api/sessions/${id}/images`));
@@ -223,8 +219,8 @@ const server=createServer(async(req,res)=>{
    const historySession={...session,messages:[...session.messages]};
    session.messages.push({role:'user',content:text,at:new Date().toISOString(),...(requestedImages.length?{imageRefs:session.imageRefs,imageRef:session.imageRef}:{})});session.status='pending';put(`session:${id}`,session);
    try{
-    const requestedVideo=wantsLearningVideo(text,input.media),media=requestedVideo?'':['图片','Blender 3D'].includes(input.media)?input.media:'';
-    const raw=await runTutor({session:historySession,text,modelId:model.id,images,environment,memory:memory(),agentName,reveal,media,videoRequested:requestedVideo&&videoGeneration.configured,generateVisual:imageGeneration.configured&&!media&&!requestedVideo,signal:controller.signal});
+    const media=['图片','Blender 3D'].includes(input.media)?input.media:'';
+    const raw=await runTutor({session:historySession,text,modelId:model.id,images,environment,memory:memory(),agentName,reveal,media,generateVisual:imageGeneration.configured&&!media,signal:controller.signal});
     const withImage=extractGeneratedImagePrompt(extractVideoBrief(raw).text);
     const parsed=parseLearningFeedback(withImage.text,text,historySession.messages);if(!parsed.text)throw new Error('模型未返回讲解');
     const result=parsed.text,feedback=parsed.feedback?{...parsed.feedback,id:randomUUID()}:null;
@@ -233,12 +229,11 @@ const server=createServer(async(req,res)=>{
     // Merge asynchronous media that may have finished while this reply was running.
     const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;
     session.messages.push(assistantMessage);session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);put(`session:${id}`,session);
-    let videoJob=null,videoError='';
-    if(requestedVideo){try{videoJob=videoJobs.enqueue(user.id,id,messageIndex,model.id);}catch(error){videoError=error.status?error.message:'视频生成暂未完成';const saved=get(`session:${id}`,null);saved.messages[messageIndex].videoError=videoError;put(`session:${id}`,saved);}}
+
     if(imageJobId){put(`image-job:${imageJobId}`,{sessionId:id,messageIndex,status:'pending',createdAt:at});startImageJob({jobId:imageJobId,userId:user.id,sessionId:id,messageIndex,prompt:withImage.prompt});}
     const learning=get('learning',{});learning.helpEvents||=[];const q=learning.questions.find(q=>q.id===session.questionId);learning.helpEvents.push({id:randomUUID(),sessionId:id,at,subject:q?.subject||'待识别',topic:q?.topic||'未标注',questionId:q?.id||null,action:reveal?'reviewed_solution':'asked_for_help'});put('learning',learning);
     if(q){const support=get(`support:${q.id}`,{hintsUsed:0});put(`support:${q.id}`,{...support,hintsUsed:support.hintsUsed+1,solutionSeen:support.solutionSeen||reveal});}
-    return send(res,200,{sessionId:id,messageIndex,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId,videoJob,videoError});
+    return send(res,200,{sessionId:id,messageIndex,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId});
    }catch{const error='这次讲解未完成，请稍后重试。';const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;session.messages.push({role:'assistant',content:error,status:'error',agentName,at:new Date().toISOString()});session.status='failed';put(`session:${id}`,session);return send(res,502,{error});}finally{clearTimeout(timeout);busy.delete(user.id);}
   }
   if(url.pathname==='/api/export')return send(res,200,{version:2,exportedAt:new Date().toISOString(),learning:get('learning',{}),memory:memory(),sessions:db.prepare('SELECT body FROM documents WHERE id LIKE ?').all(prefix+'session:%').map(row=>JSON.parse(row.body))});

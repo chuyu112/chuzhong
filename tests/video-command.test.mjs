@@ -69,6 +69,8 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     assert.equal(stored.messages[3].videoJob.id, result.videoJob.id); assert.equal(stored.status, 'completed');
     const repeated = await (await chat(owner, { text: '/视频生成', sessionId: 'topic' })).json();
     assert.equal(repeated.videoJob.id, result.videoJob.id);
+    const oldButton=await fetch(base+'/api/sessions/topic/videos/1',{method:'POST',headers:{cookie:owner.cookie,'content-type':'application/json'},body:JSON.stringify({modelId:'glm-5.3-flash'})});
+    assert.equal(oldButton.status,410);
     assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 1);
     assert.equal((await chat(owner, { text: '我叫小乐', sessionId: 'topic' })).status, 200);
     for (let i = 0; i < 100 && !requests.length; i++) await delay(20);

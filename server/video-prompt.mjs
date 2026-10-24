@@ -4,12 +4,8 @@ import { parseVideoCommand } from './video-command.mjs';
 export const VIDEO_SPEC = Object.freeze({ duration: 30, resolution: '480p', ratio: '16:9' });
 
 // Explicit requests only: asking about a video or a historical topic is not consent to generate one.
-export function wantsLearningVideo(text, media = '') {
-  if (parseVideoCommand(text)) return true;
-  if (media === '视频') return true;
-  const value = String(text).replace(/\s+/g, '');
-  if (/(不要|不用|别|不需要).{0,10}(视频|短片)/.test(value)) return false;
-  return /(?:生成|制作|做|来|给我|想看).{0,12}(?:视频|短片)|用视频.{0,8}(?:讲|解释|演示)|(?:视频|短片).{0,8}(?:讲一下|讲讲|解释一下)/.test(value);
+export function wantsLearningVideo(text) {
+  return Boolean(parseVideoCommand(text));
 }
 
 const videoSkill = loadXiaozhiVideoSkill();
