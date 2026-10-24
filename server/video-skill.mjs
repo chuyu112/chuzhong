@@ -7,7 +7,7 @@ import { loadSkillsFromDir } from '@earendil-works/pi-coding-agent';
 const defaultDirectory = fileURLToPath(new URL('../skills/xiaozhi-video/', import.meta.url));
 
 // Discover exactly this trusted project skill with Pi. The tutoring harness has
-// no filesystem tools, so load its two required references on the server and
+// no filesystem tools, so load the required references on the server and
 // inject their contents only in the video-planning branch of tutorPolicy.
 export function loadXiaozhiVideoSkill(directory = defaultDirectory) {
   const { skills, diagnostics } = loadSkillsFromDir({ dir: directory, source: 'project' });
@@ -17,8 +17,11 @@ export function loadXiaozhiVideoSkill(directory = defaultDirectory) {
   const body = source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
   const direction = readFileSync(join(skill.baseDir, 'references/cinematic-direction.md'), 'utf8').trim();
   const contract = readFileSync(join(skill.baseDir, 'references/storyboard-contract.md'), 'utf8').trim();
-  if (!body || !direction || !contract) throw new Error('小直视频 Skill 内容不完整');
-  const sha256 = createHash('sha256').update(JSON.stringify([source, direction, contract])).digest('hex');
-  return Object.freeze({ name: skill.name, description: skill.description, filePath: skill.filePath, direction, sha256,
-    instructions: `已加载技能：${skill.name}\n${body}\n\n电影制作要求（已读取）：\n${direction}\n\n分镜输出协议（已读取）：\n${contract}` });
+  const english = readFileSync(join(skill.baseDir, 'references/english-roleplay.md'), 'utf8').trim();
+  const englishAudio = readFileSync(join(skill.baseDir, 'references/english-direction.md'), 'utf8').trim();
+  if (!body || !direction || !contract || !english || !englishAudio) throw new Error('小直视频 Skill 内容不完整');
+  const englishDirection = englishAudio;
+  const sha256 = createHash('sha256').update(JSON.stringify([source, direction, contract, english, englishAudio])).digest('hex');
+  return Object.freeze({ name: skill.name, description: skill.description, filePath: skill.filePath, direction, englishDirection, sha256,
+    instructions: `已加载技能：${skill.name}\n${body}\n\n知识讲解电影制作要求（仅knowledge模式）：\n${direction}\n\n分镜输出协议（已读取）：\n${contract}\n\n英语情景教学（仅english_roleplay模式）：\n${english}\n${englishAudio}` });
 }

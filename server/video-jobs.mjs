@@ -36,7 +36,7 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
         if (!job.prompt) {
           stage = 'planning'; update(job, { stage });
           const planned = await plan({ ...session, messages: session.messages.slice(0, job.messageIndex + 1) }, job);
-          update(job, { prompt: planned.prompt, title: planned.brief.title, ...(planned.skill ? { skill: planned.skill } : {}) });
+          update(job, { prompt: planned.prompt, brief: planned.brief, title: planned.brief.title, ...(planned.skill ? { skill: planned.skill } : {}) });
         }
         if (!job.projectId) { stage = 'creating_project'; update(job, { stage }); update(job, { projectId: await provider.createProject(id) }); }
         if (!job.nodeId) { stage = 'creating_node'; update(job, { stage }); update(job, { nodeId: await provider.createNode(job.projectId, id, job.prompt) }); }
@@ -54,11 +54,11 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
           if (status.awaitingSubmission && Date.now() - job.submittedAt > 90000) throw new Error('submission not confirmed');
           if (status.status === 'completed') {
             stage = 'downloading'; update(job, { stage });
-            const result = await provider.download(job.projectId, job.nodeId, status.url);
+            const result = await provider.download(job.projectId, job.nodeId, status.url, job.brief);
             const filename = createHash('sha256').update(result.buffer).digest('hex');
             const folder = resolve(data, 'videos', userId); mkdirSync(folder, { recursive: true });
             writeFileSync(resolve(folder, filename), result.buffer, { mode: 0o600 });
-            update(job, { status: 'completed', stage: 'completed', completedAt: new Date().toISOString(), ref: { filename, mimeType: 'video/mp4', duration: result.duration, width: result.width, height: result.height } });
+            update(job, { status: 'completed', stage: 'completed', completedAt: new Date().toISOString(), ref: { filename, mimeType: 'video/mp4', duration: result.duration, width: result.width, height: result.height, ...(result.subtitleLanguage ? { subtitleLanguage: result.subtitleLanguage } : {}) } });
             break;
           }
           if (status.status === 'failed') throw new Error('provider failed');
@@ -68,7 +68,8 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
         // task instead of generating or charging again.
       } catch (error) {
         const planningCodes = ['VIDEO_PLANNING_TIMEOUT', 'VIDEO_MODEL_REQUEST_FAILED', 'VIDEO_BRIEF_INVALID'];
-        const failureCode = planningCodes.includes(error.code) ? error.code : 'VIDEO_STAGE_FAILED';
+        const failureCode = error.code === 'VIDEO_SUBTITLES_FAILED' || planningCodes.includes(error.code) ? error.code : 'VIDEO_STAGE_FAILED';
+        if (error.code === 'VIDEO_SUBTITLES_FAILED') stage = 'subtitling';
         update(job, { status: 'failed', failureStage: stage, failureCode, failedAt: new Date().toISOString(), ...(planningCodes.includes(error.code) ? { diagnostics: error.diagnostics || [] } : {}), error: '这次视频没生成成功。你可以说“重试”，或“换个模型重试”。' });
       } finally { active.delete(id); }
     })();

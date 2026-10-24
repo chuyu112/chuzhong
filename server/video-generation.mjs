@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, readdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
+import { addEnglishSubtitles } from './video-subtitles.mjs';
 
 const exec = (file, args, options) => new Promise((resolve, reject) => {
   const child = execFile(file, args, options, (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr }));
@@ -32,7 +33,7 @@ export function validateVideoMetadata(metadata) {
   return { duration, width: video.width, height: video.height };
 }
 
-export function createVideoGenerationService({ enabled = false, cliPath = 'libtv', ffprobePath = 'ffprobe', execImpl = exec, fetchImpl = fetch, credentialsPath = join(process.env.LIBTV_CONFIG_DIR || join(homedir(), '.libtv'), 'credentials.json') } = {}) {
+export function createVideoGenerationService({ enabled = false, cliPath = 'libtv', ffprobePath = 'ffprobe', ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg', execImpl = exec, fetchImpl = fetch, credentialsPath = join(process.env.LIBTV_CONFIG_DIR || join(homedir(), '.libtv'), 'credentials.json') } = {}) {
   const call = async (args, timeout = 30000) => {
     const result = await execImpl(cliPath, args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
     return result.stdout;
@@ -83,7 +84,7 @@ export function createVideoGenerationService({ enabled = false, cliPath = 'libtv
       }
       return { status: 'pending' };
     },
-    async download(projectId, nodeId, resourceUrl) {
+    async download(projectId, nodeId, resourceUrl, brief) {
       ids(projectId, nodeId);
       const directory = await mkdtemp(join(tmpdir(), 'zhixu-video-'));
       try {
@@ -102,7 +103,14 @@ export function createVideoGenerationService({ enabled = false, cliPath = 'libtv
         if (!info.isFile() || info.size > 100 * 1024 * 1024 || !info.size) throw new Error('视频文件大小无效');
         const result = await execImpl(ffprobePath, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', file], { encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
         const metadata = validateVideoMetadata(JSON.parse(result.stdout));
-        return { buffer: await readFile(file), mimeType: 'video/mp4', ...metadata };
+        let buffer = await readFile(file);
+        if (brief?.mode === 'english_roleplay') {
+          buffer = await addEnglishSubtitles(buffer, brief, { execImpl, ffmpegPath });
+          await writeFile(file, buffer);
+          const checked = await execImpl(ffprobePath, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', file], { encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
+          validateVideoMetadata(JSON.parse(checked.stdout));
+        }
+        return { buffer, mimeType: 'video/mp4', ...metadata, ...(brief?.mode === 'english_roleplay' ? { subtitleLanguage: 'en' } : {}) };
       } finally { await rm(directory, { recursive: true, force: true }); }
     },
   };

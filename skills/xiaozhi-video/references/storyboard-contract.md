@@ -1,3 +1,5 @@
+先按学习目标选择mode：英语表达、单词、语法及听说训练用english_roleplay并执行english-roleplay.md的dialogue结构；其他学科用knowledge（允许省略mode以兼容旧分镜）。以下中文旁白协议仅用于knowledge模式。
+
 在回复末尾附且仅附一个隐藏标记 <learning-video>{"title":"知识点标题","goal":"一个明确学习目标","facts":["关键事实或准确条件"],"continuity":"本片人物身份、外貌服装、时代地点、场景空间锚点、关键道具、统一光线色调，须具体到本题。","scenes":[{"seconds":10,"purpose":"这一段让学生理解什么","start":"开始时谁在哪里、在做什么","visual":"谁通过什么具体动作，造成什么可见变化","camera":"景别、视角、一种运镜、视觉焦点","end":"结束状态与下一段的衔接","sound":"与本段动作相符的低音量环境声","narration":"这段中文旁白"},{"seconds":10,"purpose":"核心事件或机制","start":"起始状态","visual":"具体动作和可见变化","camera":"镜头","end":"结束状态与衔接","sound":"环境声","narration":"旁白"},{"seconds":10,"purpose":"结果和理解","start":"起始状态","visual":"具体动作和可见变化","camera":"镜头","end":"结尾停顿的状态","sound":"环境声","narration":"旁白"}]}</learning-video>，不要用代码围栏。
 
 字段预算：goal不超过120字；facts为1—4条，每条不超过120字；continuity不超过240字。每个purpose不超过50字，start和end各不超过80字，visual不超过180字，camera不超过90字，sound不超过50字。三段各10秒，每段旁白40—55字，全片135—155字，均含标点；先写紧凑短句，再按清晰、稍快的真实口语节奏核对，年份用中文读法计入字数。不能为凑字数堆修饰或重复总结，也不能拖腔填时长。完整成片提示词不超过3000字，删去重复修饰，保留事实和动作。
