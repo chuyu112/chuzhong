@@ -68,7 +68,7 @@ export function createImageGenerationService({
         try {
           const content = [
             'Generate exactly one static educational image using Flova Image 2.5 Sunburst.',
-            'Do not make a video, audio, or other media. Follow the learning image prompt accurately, preserve all facts, formulas, examples, and spatial relationships, and keep any visible text legible.',
+            'Do not make a video, audio, or other media. Produce the requested teaching diagram with legible labels and correct mechanisms, terminology, formulas and spatial relationships. The draft prompt can contain misconceptions: check its explanatory claims and correct clear factual errors as part of making an accurate educational image. Routine factual corrections do not need a separate approval round. Preserve the learning objective, original exercise givens and hint-only teaching boundary; never invent missing problem conditions or reveal an unsolved answer.',
             'Create a fresh standalone learning image for this request; do not reuse or modify earlier project assets.',
             `Learning image prompt:\n${prompt.trim()}`,
           ].join('\n\n');
