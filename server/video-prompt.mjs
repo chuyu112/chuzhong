@@ -27,11 +27,12 @@ export function validateVideoBrief(value) {
     continuity: cleanString(value.continuity, 240),
     scenes: value.scenes.map(scene => {
       if (scene.seconds !== 10) throw new Error('视频时长需要合计30秒');
-      if (typeof scene.narration !== 'string' || scene.narration.trim().length < 28) throw new Error('每段旁白需要28—45字，以完整讲清内容');
-      return { seconds: 10, purpose: cleanString(scene.purpose, 50), start: cleanString(scene.start, 80), visual: cleanString(scene.visual, 180), camera: cleanString(scene.camera, 90), end: cleanString(scene.end, 80), sound: cleanString(scene.sound, 50), narration: cleanString(scene.narration, 45) };
+      if (typeof scene.narration !== 'string' || scene.narration.trim().length < 40) throw new Error('每段旁白需要40—55字，以紧凑讲清内容');
+      return { seconds: 10, purpose: cleanString(scene.purpose, 50), start: cleanString(scene.start, 80), visual: cleanString(scene.visual, 180), camera: cleanString(scene.camera, 90), end: cleanString(scene.end, 80), sound: cleanString(scene.sound, 50), narration: cleanString(scene.narration, 55) };
     }),
   };
-  if (brief.scenes.map(s => s.narration).join('').length > 130) throw new Error('视频旁白太长');
+  const narrationLength = brief.scenes.map(s => s.narration).join('').length;
+  if (narrationLength < 135 || narrationLength > 155) throw new Error('全片旁白需要135—155字，以保证30秒讲解节奏');
   return brief;
 }
 
