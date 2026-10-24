@@ -76,11 +76,12 @@ export function setupFamily({ api, action, node, toast }) {
       $('family-sessions').append(button);
     }
     $('family-evidence').replaceChildren();
-    const evidence = result.memory.topics.filter(t => t.totalAttempts || t.assistedAttempts);
+    const evidence = result.memory.topics.filter(t => t.totalAttempts || t.assistedAttempts || t.observationCount);
     if (!evidence.length) $('family-evidence').append(node('p', 'empty', '还没有足够的作答证据。可以先从对话中了解孩子的问题。'));
     for (const topic of evidence) {
       const card = node('div', 'family-topic');
       card.append(node('strong', '', `${topic.subject} · ${topic.skill || topic.topic}：${topic.status}`), node('p', '', topic.explanation));
+      for(const observation of topic.recentObservations||[])card.append(node('p','',`${when(observation.at)} · ${observation.source==='image_reading'?'图片读题，待确认':'分析线索，待验证'}：${observation.evidence}\n可能卡点：${observation.hypothesis}${observation.prerequisiteName?'\n待核查基础：'+observation.prerequisiteName:''}`));
       if (topic.progress) card.append(node('p', '', topic.progress.note));
       if (topic.practiceTrend) card.append(node('p', '', `前 3 道独立作答答对 ${topic.practiceTrend.earlier.correct} 道，最近 3 道答对 ${topic.practiceTrend.latest.correct} 道。题目难度未校正。`));
       for (const attempt of topic.recentAttempts) card.append(node('small', '', `${when(attempt.at)} · ${attempt.correct ? '答对' : '待调整'} · ${{ none: '独立作答', hint: '提示后作答', solution: '已看过解答', unknown: '提示情况未记录' }[attempt.support] || '提示情况未记录'}`));

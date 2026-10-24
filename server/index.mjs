@@ -19,6 +19,8 @@ import { parseVideoCommand, queueVideoCommand } from './video-command.mjs';
 import { parseVideoRetry, replyToVideoRetry } from './video-retry.mjs';
 import { samples, grade, variant } from '../dist/core.js';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
+import { createMathLearningTurn } from './math-learning.mjs';
+import { publicMathPractice, checkMathAnswer } from './math-practice.mjs';
 import { defaultAppearance, validateAppearance } from './appearance.mjs';
 import { hasNickname, welcomeMessage, nicknameFromMessage } from '../dist/onboarding.js';
 import { createAccountAuth } from './accounts.mjs';
@@ -47,7 +49,7 @@ if(administrator&&!readDocument('legacy-migrated-to',null)){
  }
  writeDocument('legacy-migrated-to',{userId:administrator.id,at:new Date().toISOString(),documents:legacy.length});
 }
-const publicQuestion=({answer,solution,hints,...q})=>({...q,hintCount:hints?.length||0});
+const publicQuestion=publicMathPractice;
 const archive=resolve(process.env.EDU_ARCHIVE_DIR||resolve(root,'../真题库'));
 const paperManifest=()=>{try{return JSON.parse(readFileSync(resolve(archive,'download-manifest.json'),'utf8'));}catch{return {papers:[],counts:{}};}};
 const environment=loadModelEnvironment();const models=availableModels(environment);
@@ -164,7 +166,9 @@ const server=createServer(async(req,res)=>{
    const input=await body(req,10000);const learning=get('learning',{});const q=learning.questions.find(q=>q.id===input.questionId);if(!q)return send(res,404,{error:'题目不存在'});
    if(!String(input.answer??'').trim())return send(res,400,{error:'请先填写你的答案'});
    const support=get(`support:${q.id}`,{hintsUsed:0});
-   const attempt={id:randomUUID(),questionId:q.id,answer:String(input.answer).slice(0,500),correct:grade(q,input.answer),hintsUsed:support.hintsUsed,support:support.solutionSeen?'solution':support.hintsUsed>0?'hint':'none',at:new Date().toISOString()};
+   const mathGrade=q.type==='math-practice'?checkMathAnswer(q,input.answer):null;
+   if(mathGrade&&mathGrade.status!=='graded')return send(res,400,{error:'请用一个数值或分数填写最终答案；暂不将这个输入记为错误。'});
+   const attempt={id:randomUUID(),questionId:q.id,answer:String(input.answer).slice(0,500),correct:mathGrade?mathGrade.correct:grade(q,input.answer),hintsUsed:support.hintsUsed,support:support.solutionSeen?'solution':support.hintsUsed>0?'hint':mathGrade?'unknown':'none',at:new Date().toISOString()};
    const encouragement=practiceEncouragement(attempt,learning.attempts),firstCorrect=attempt.correct&&!learning.attempts.some(a=>a.questionId===q.id&&a.correct);
    learning.attempts.push(attempt);put('learning',learning);put(`support:${q.id}`,{...support,solutionSeen:true});return send(res,201,{...attempt,solution:q.solution,encouragement,feedback:firstCorrect?{id:attempt.id,kind:'correct_answer'}:null});
   }
@@ -205,7 +209,7 @@ const server=createServer(async(req,res)=>{
    if(requestedImages.length){
     if(session.imageRef&&!session.messages.some(m=>m.imageRef||m.imageRefs)){const previous=session.messages.find(m=>m.role==='user');if(previous)previous.imageRef=session.imageRef;}
     const refs=[];for(const item of requestedImages){const filename=createHash('sha256').update(item.bytes).digest('hex');mkdirSync(resolve(data,'homework',user.id),{recursive:true});writeFileSync(resolve(data,'homework',user.id,filename),item.bytes);refs.push({filename,mimeType:item.mimeType});}
-    session.imageRefs=refs;session.imageRef=refs[0];session.hints=0;session.attempt='';session.questionId=null;
+    session.imageRefs=refs;session.imageRef=refs[0];session.hints=0;session.attempt='';session.questionId=null;session.mathLearning={activeQuestionId:null,support:'none'};
    }else if(previousRefs.length){
     images=previousRefs.map(ref=>{if(!/^[a-f0-9]{64}$/.test(ref.filename)||!/^image\/(jpeg|png|webp)$/.test(ref.mimeType))throw Object.assign(new Error('历史图片暂时无法读取，请重新上传'),{status:400});const bytes=readFileSync(resolve(data,'homework',user.id,ref.filename));if(bytes.length>MAX_CHAT_IMAGE_BYTES)throw Object.assign(new Error('历史图片超过当前读取限制，请重新上传'),{status:400});return {mimeType:ref.mimeType,base64:bytes.toString('base64'),bytes};});
    }
@@ -214,23 +218,29 @@ const server=createServer(async(req,res)=>{
    const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),280000);res.on('close',()=>{if(!res.writableEnded)controller.abort();});busy.add(user.id);
    if(!hasNickname(profile)){profile.nicknameAsked=true;put('profile',profile);}
    const historySession={...session,messages:[...session.messages]};
+   if(historySession.mathLearning?.activeQuestionId){const support=get(`support:${historySession.mathLearning.activeQuestionId}`,{});if(support.hintsUsed||support.solutionSeen)historySession.mathLearning={...historySession.mathLearning,support:support.solutionSeen?'solution':'hint'};}
+   const mathTurn=createMathLearningTurn({learning:get('learning',{questions:[],attempts:[]}),session:historySession,text,hasImages:images.length>0});
    session.messages.push({role:'user',content:text,at:new Date().toISOString(),...(requestedImages.length?{imageRefs:session.imageRefs,imageRef:session.imageRef}:{})});session.status='pending';put(`session:${id}`,session);
    try{
     const media=['图片','Blender 3D'].includes(input.media)?input.media:'';
-    const raw=await runTutor({session:historySession,text,modelId:model.id,images,environment,memory:memory(),agentName,reveal,media,generateVisual:imageGeneration.configured&&!media,signal:controller.signal});
+    const raw=(!media&&mathTurn.verifiedReply)||await runTutor({session:historySession,text,modelId:model.id,images,environment,memory:memory(),agentName,reveal,media,generateVisual:imageGeneration.configured&&!media,learningTools:media?[]:mathTurn.tools,learningContext:media?'':mathTurn.context,signal:controller.signal});
     const withImage=extractGeneratedImagePrompt(extractVideoBrief(raw).text);
     const parsed=parseLearningFeedback(withImage.text,text,historySession.messages);if(!parsed.text)throw new Error('模型未返回讲解');
-    const result=parsed.text,feedback=parsed.feedback?{...parsed.feedback,id:randomUUID()}:null;
+    const mathResult=media?{text:parsed.text,learning:get('learning',{}),topicIds:[]}:mathTurn.finish(parsed.text,get('learning',{}),session);
+    const result=mathResult.text;
+    const alreadyCorrect=mathResult.checked&&get('learning',{}).attempts.some(a=>a.questionId===mathResult.checked.questionId&&a.correct);
+    const feedback=mathResult.checked?(mathResult.checked.correct&&!alreadyCorrect?{id:mathResult.checked.evidenceId,kind:'correct_answer'}:null):(parsed.feedback?{...parsed.feedback,id:randomUUID()}:null);
     const at=new Date().toISOString(),messageIndex=session.messages.length;
     const assistantMessage={role:'assistant',content:result,agentName,at,...(feedback?{feedback}:{})};
     // Merge asynchronous media that may have finished while this reply was running.
     const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;
-    session.messages.push(assistantMessage);session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);put(`session:${id}`,session);
-
+    session.messages.push(assistantMessage);session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);
+    const learning=mathResult.learning;learning.helpEvents||=[];const q=learning.questions.find(q=>q.id===session.questionId),observed=learning.observations?.filter(o=>mathResult.topicIds.includes(o.topicId)).at(-1);learning.helpEvents.push({id:randomUUID(),sessionId:id,at,subject:q?.subject||observed?.subject||'待识别',topic:q?.topic||observed?.topic||'未标注',topicIds:mathResult.topicIds,questionId:q?.id||null,action:reveal?'reviewed_solution':'asked_for_help'});
+    db.exec('BEGIN IMMEDIATE');
+    try{put(`session:${id}`,session);put('learning',learning);db.exec('COMMIT');}catch(error){db.exec('ROLLBACK');throw error;}
+    if(q){const support=get(`support:${q.id}`,{hintsUsed:0});put(`support:${q.id}`,{...support,hintsUsed:support.hintsUsed+1,solutionSeen:support.solutionSeen||reveal});}
     const imageJob=imageGeneration.configured&&!media?imageJobs.enqueue(user.id,id,messageIndex,model.id,withImage.prompt):null;
     const imageJobId=imageJob?.id||null;
-    const learning=get('learning',{});learning.helpEvents||=[];const q=learning.questions.find(q=>q.id===session.questionId);learning.helpEvents.push({id:randomUUID(),sessionId:id,at,subject:q?.subject||'待识别',topic:q?.topic||'未标注',questionId:q?.id||null,action:reveal?'reviewed_solution':'asked_for_help'});put('learning',learning);
-    if(q){const support=get(`support:${q.id}`,{hintsUsed:0});put(`support:${q.id}`,{...support,hintsUsed:support.hintsUsed+1,solutionSeen:support.solutionSeen||reveal});}
     return send(res,200,{sessionId:id,messageIndex,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId});
    }catch{const error='这次讲解未完成，请稍后重试。';const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;session.messages.push({role:'assistant',content:error,status:'error',agentName,at:new Date().toISOString()});session.status='failed';put(`session:${id}`,session);return send(res,502,{error});}finally{clearTimeout(timeout);busy.delete(user.id);}
   }

@@ -1,0 +1,5 @@
+来源：xiaoyang111222/cn-math-taxonomy
+https://github.com/xiaoyang111222/cn-math-taxonomy
+固定版本：e6d69137c01468a9c03cbb4ceceba0cfc1d50cca
+许可：CC BY-NC 4.0，https://creativecommons.org/licenses/by-nc/4.0/
+本项目修改：仅提取初中数学及小学前置知识节点和关系；移除节点中的诊断题答案；不采用上游掌握度推断引擎。来源数据为AI初稿，尚未经教师审核。本应用新增练习由自己的参数化生成器和独立算式校验产生，不宣称为深圳中考真题。
