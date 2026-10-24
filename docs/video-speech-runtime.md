@@ -1,6 +1,6 @@
 # English video speech alignment
 
-English video planning uses `teachingVersion:3`: estimate natural speech first, perform the main exchange once, explain necessary expressions and add a distinct example when the content is short. Scene lengths follow content, not a fixed normal/slow/repeat template. Existing v2 briefs remain readable for already submitted jobs.
+English video planning uses `teachingVersion:3`: estimate natural speech first, perform the main exchange once, then explain key expressions slightly more slowly and repeat those key expressions once; add a distinct example when the content is short. Scene lengths follow content, not a fixed normal/slow/repeat template. The planner validates the explanation-before-review sequence for new jobs; previously submitted v3 briefs remain readable for recovery. Existing v2 briefs remain readable for already submitted jobs.
 
 Production downloads the original video, transcribes its actual audio locally, verifies the ordered spoken text against the approved brief and burns bilingual subtitles at the detected speech times. Missing or unreliable speech produces a recoverable failure instead of guessed captions. Recognition/runtime outages reuse the original remote video. A confirmed speech/script mismatch may create a new attempt only after the student's explicit conversational retry.
 

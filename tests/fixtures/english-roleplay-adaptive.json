@@ -74,7 +74,7 @@
     {
       "stage": "breakdown",
       "seconds": 5,
-      "purpose": "解释关键搭配",
+      "purpose": "稍慢解释关键搭配，再复述要点",
       "start": "两人仍在桌旁",
       "visual": "B示意合理的理由，A自然点头",
       "camera": "稳定双人近景",
@@ -83,11 +83,21 @@
       "dialogue": [
         {
           "speaker": "B",
-          "text": "A fair point means a good and convincing reason.",
+          "text": "A fair point means a good reason.",
           "translation": "有道理的观点，就是合理的理由。",
           "focus": "a fair point",
           "action": "B以开放手势解释，A点头",
-          "delivery": "natural",
+          "delivery": "clear",
+          "start": 0,
+          "end": 1
+        },
+        {
+          "speaker": "A",
+          "text": "That's a fair point.",
+          "translation": "说得有道理。",
+          "focus": "a fair point",
+          "action": "A点头，稍慢且自然地复述关键表达",
+          "delivery": "clear",
           "start": 0,
           "end": 1
         }

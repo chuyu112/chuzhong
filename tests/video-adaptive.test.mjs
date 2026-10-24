@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { inspectVideoBrief, validateVideoBrief, buildVideoPrompt, englishWords } from '../server/video-prompt.mjs';
+import { inspectVideoBrief, validateVideoBrief, buildVideoPrompt, englishWords, validateEnglishReview } from '../server/video-prompt.mjs';
 import { alignEnglishCues } from '../server/video-audio-alignment.mjs';
 import { englishSubtitleAss, englishSubtitleCues } from '../server/video-subtitles.mjs';
 
@@ -11,7 +11,8 @@ const inspect = value => inspectVideoBrief(`<learning-video>${JSON.stringify(val
 test('content determines scene lengths, preserving the original exchange and adding a distinct example', () => {
   const { brief, issue } = inspect(fixture);
   assert.ok(brief, issue);
-  assert.equal(brief.timingEstimate.words, 68);
+  assert.doesNotThrow(() => validateEnglishReview(brief));
+  assert.equal(brief.timingEstimate.words, 70);
   assert.ok(brief.timingEstimate.speechAndTurnSeconds >= 26);
   assert.equal(brief.scenes.reduce((sum, scene) => sum + scene.seconds, 0), 30);
   assert.ok(brief.scenes[0].seconds > 20);
@@ -19,7 +20,7 @@ test('content determines scene lengths, preserving the original exchange and add
   assert.equal(brief.scenes[2].stage, 'example');
   for (const scene of brief.scenes) for (const line of scene.dialogue) {
     const rate = englishWords(line.text).length * 60 / (line.end - line.start);
-    assert.ok(rate >= 159 && rate <= 161);
+    assert.ok(line.delivery === 'clear' ? rate >= 144 && rate <= 146 : rate >= 159 && rate <= 161);
   }
   const prompt = buildVideoPrompt(brief);
   assert.ok(prompt.length < 3000);
@@ -27,26 +28,44 @@ test('content determines scene lengths, preserving the original exchange and add
   assert.ok(englishSubtitleCues(brief).some(cue => cue.meaning === '有道理的观点'));
 });
 
-test('a complete lesson can use one scene without forced breakdown, replay or extra example', () => {
+test('new lessons explain the key point before one clear reprise of the original expression', () => {
+  const approved = inspect(fixture).brief;
+  const reviews = approved.scenes[1].dialogue;
+  assert.equal(reviews[0].focus, reviews[1].focus);
+  assert.equal(reviews[1].text, "That's a fair point.");
+  for (const mutate of [
+    brief => brief.scenes[1].dialogue.reverse(),
+    brief => brief.scenes[1].dialogue[1].delivery = 'natural',
+    brief => brief.scenes[1].dialogue[1].text = 'The weather is lovely.',
+    brief => brief.scenes[1].dialogue.push({ ...brief.scenes[1].dialogue[1] }),
+    brief => brief.scenes.splice(1, 1),
+  ]) {
+    const invalid = structuredClone(approved); mutate(invalid);
+    assert.throws(() => validateEnglishReview(invalid), undefined, mutate.toString());
+  }
+});
+
+test('older single-scene v3 remains readable but new planning requires key-point review', () => {
   const draft = structuredClone(fixture);
-  draft.scenes[0].dialogue = draft.scenes.flatMap(scene => scene.dialogue);
+  draft.scenes[0].dialogue = draft.scenes.flatMap(scene => scene.dialogue).map(line => ({ ...line, delivery: 'natural' }));
   draft.scenes = [draft.scenes[0]];
   const result = inspect(draft);
   assert.ok(result.brief, result.issue);
   assert.equal(result.brief.scenes.length, 1);
   assert.equal(result.brief.scenes[0].seconds, 30);
+  assert.throws(() => validateEnglishReview(result.brief), /先用breakdown/);
 });
 
 test('slightly fuller content stays within natural conversational speed and can embed the target sentence', () => {
   const draft = structuredClone(fixture);
   draft.targetSentence = "I don't think the school trip is worth the money.";
-  draft.scenes[2].dialogue[0].text += ' We can spend the savings on lab supplies.';
+  draft.scenes[2].dialogue[0].text += ' We can save money for lab supplies.';
   const { brief, issue } = inspect(draft);
   assert.ok(brief, issue);
   assert.ok(brief.timingEstimate.speechAndTurnSeconds < 30);
   for (const scene of brief.scenes) for (const line of scene.dialogue) {
     const rate = englishWords(line.text).length * 60 / (line.end - line.start);
-    assert.ok(rate >= 169 && rate <= 171);
+    assert.ok(line.delivery === 'clear' ? rate >= 144 && rate <= 146 : rate >= 169 && rate <= 171);
   }
 });
 

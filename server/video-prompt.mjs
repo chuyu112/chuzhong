@@ -130,6 +130,24 @@ function scheduleAdaptiveEnglish(value) {
 
 export const englishWords = text => String(text).match(/[A-Za-z]+(?:['’][A-Za-z]+)*/g) || [];
 const comparable = text => String(text).toLowerCase().replace(/[^a-z0-9'’]+/g, ' ').trim();
+
+// Apply the current teaching sequence to new plans only. Already submitted
+// v3 scripts must remain readable for download and audio-aligned captions.
+export function validateEnglishReview(brief) {
+  if (brief.mode !== 'english_roleplay') return;
+  if (brief.scenes[1]?.stage !== 'breakdown') throw new Error('完整对话首演后，先用breakdown稍慢讲清要点并复述关键表达，再按余量加新例子');
+  const original = brief.scenes[0].dialogue.map(line => comparable(line.text));
+  const fromOriginal = line => original.some(text => (' ' + text + ' ').includes(' ' + comparable(line.text) + ' '));
+  const reviews = brief.scenes.filter(scene => scene.stage === 'breakdown').flatMap(scene => scene.dialogue);
+  if (reviews.some(line => line.delivery !== 'clear')) throw new Error('要点讲解与复述用delivery:clear，约145词/分钟，比首演稍慢，不拖音');
+  const repeats = reviews.filter(line => line.focus && fromOriginal(line));
+  if (!repeats.length) throw new Error('要点讲清后，把首演中的关键句或短语原样再说一次：独立一条clear台词，focus对应chunks释义，不重演整段对话');
+  if (new Set(repeats.map(line => comparable(line.text))).size !== repeats.length) throw new Error('同一个要点只复述一次，不重复凑时长');
+  for (const line of repeats) {
+    const index = reviews.indexOf(line);
+    if (!reviews.slice(0, index).some(explanation => explanation.focus && comparable(explanation.focus) === comparable(line.focus) && !fromOriginal(explanation))) throw new Error('先用简短英文和动作讲清要点，再复述；说明台词和复述台词使用同一个focus并对应中文释义');
+  }
+}
 function englishText(value, max, field) {
   const text = cleanString(value, max, false, field);
   if (!/^[A-Za-z0-9 ,.!?'’“”"():;—–-]+$/.test(text) || !englishWords(text).length) throw new Error(`${field}必须是英文台词，不含中文、换行或制作标记`);
@@ -269,7 +287,7 @@ function buildEnglishPrompt(brief) {
   if (brief.teachingVersion === 3) {
     let offset = 0;
     const prompt = [
-      '30秒480p、16:9真人电影质感，两位英语母语外国成年人自然交流，标准美式发音。先按内容正常说完，再给必要解释；内容短用不同的新例子扩展，不重复整段对话、不用拖音或长空白凑时长。',
+      '30秒480p、16:9真人电影质感，两位英语母语外国成年人自然交流，标准美式发音。先正常语速完整演一遍双人对话，再稍慢讲清要点，把关键句或短语再说一次；内容短用不同的新例子扩展，不重复整段对话、不用拖音或长空白凑时长。',
       '正常台词约150—170词/分钟，有clear标记才略微清楚地读，约145词/分钟；绝不夸张慢放或拉长单词。口型与台词同步，未说话者倾听，无中文配音、第三人旁白或背景人声。',
       '按下列顺序逐字说出台词；干净画面，不生成字幕文字。底部25%供后期中英字幕；服务器会按实际音轨对齐。保持人物服装、音色、道具及站位连续，无动漫、卡通或赛璐璐。',
       `主题：${brief.title}\n目标：${brief.goal}\n统一设定：${brief.continuity}`,
