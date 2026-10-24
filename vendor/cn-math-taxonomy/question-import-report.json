@@ -1,0 +1,23 @@
+{
+  "source": "https://github.com/xiaoyang111222/cn-math-taxonomy",
+  "commit": "e6d69137c01468a9c03cbb4ceceba0cfc1d50cca",
+  "sourceFile": "data/questions.json",
+  "sourceSha256": "12c605c6aed36d8d3c9e073a0325a17ca09e3473e63dc250c96f7c602e58c99f",
+  "license": "CC-BY-NC-4.0",
+  "importVersion": 1,
+  "counts": {
+    "total": 1407,
+    "topics": 315,
+    "types": {
+      "numeric": 903,
+      "choice": 475,
+      "self": 6,
+      "short": 23
+    },
+    "status": {
+      "pending_review": 1407
+    },
+    "questionsWithFigures": 51
+  },
+  "quarantined": []
+}

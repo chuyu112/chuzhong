@@ -138,7 +138,7 @@ export function checkMathAnswer(q, input) {
   return {status:'graded',correct:near(value,q.answer)};
 }
 
-export function publicMathPractice({answer,solution,hints,validation,...q}) {
+export function publicMathPractice({answer,solution,hints,validation,bankReview,...q}) {
   return {...q,hintCount:hints?.length||0};
 }
 

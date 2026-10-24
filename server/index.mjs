@@ -21,6 +21,8 @@ import { samples, grade, variant } from '../dist/core.js';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
 import { createMathLearningTurn } from './math-learning.mjs';
 import { publicMathPractice, checkMathAnswer } from './math-practice.mjs';
+import {bankSummary,bankFigure,checkBankAnswer} from './math-question-bank.mjs';
+import {reviewMathBankQuestion} from './math-bank-review.mjs';
 import { defaultAppearance, validateAppearance } from './appearance.mjs';
 import { hasNickname, welcomeMessage, nicknameFromMessage } from '../dist/onboarding.js';
 import { createAccountAuth } from './accounts.mjs';
@@ -108,6 +110,13 @@ const server=createServer(async(req,res)=>{
   }
   const memory=()=>buildStudentMemory(get('learning',{questions:[],attempts:[]}),get('profile',defaultProfile));
   const appearance=()=>{const value={...defaultAppearance,...get('appearance',{})};return {...value,voiceName:resolveVoice(value.voiceName)};};
+  if(url.pathname==='/api/math-bank/status'&&req.method==='GET')return send(res,200,{...bankSummary,reviewPolicy:'结构检查后，选题时逐题复核；尚未经教师审核。'});
+  const bankFigureRoute=/^\/api\/math-bank\/figures\/(cnm_\d{3}_q\d+)\/(question|[A-H])$/.exec(url.pathname);
+  if(bankFigureRoute&&req.method==='GET'){
+   const svg=bankFigure(bankFigureRoute[1],bankFigureRoute[2]);if(!svg)return send(res,404,{error:'题目配图不存在'});
+   res.setHeader('content-security-policy',"sandbox; default-src 'none'; style-src 'unsafe-inline'");res.setHeader('x-content-type-options','nosniff');
+   return send(res,200,svg,'image/svg+xml; charset=utf-8');
+  }
   if(url.pathname==='/api/appearance'&&req.method==='GET')return send(res,200,appearance());
   if(url.pathname==='/api/appearance'&&req.method==='POST'){const settings=validateAppearance({...appearance(),...await body(req,1500000)});put('appearance',settings);return send(res,200,settings);}
   if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion,mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,videoGeneration:videoGeneration.configured&&canGenerateVideo(user.id),longTermMemory:true});
@@ -166,8 +175,8 @@ const server=createServer(async(req,res)=>{
    const input=await body(req,10000);const learning=get('learning',{});const q=learning.questions.find(q=>q.id===input.questionId);if(!q)return send(res,404,{error:'题目不存在'});
    if(!String(input.answer??'').trim())return send(res,400,{error:'请先填写你的答案'});
    const support=get(`support:${q.id}`,{hintsUsed:0});
-   const mathGrade=q.type==='math-practice'?checkMathAnswer(q,input.answer):null;
-   if(mathGrade&&mathGrade.status!=='graded')return send(res,400,{error:'请用一个数值或分数填写最终答案；暂不将这个输入记为错误。'});
+   const mathGrade=q.type==='math-bank'?checkBankAnswer(q,input.answer):q.type==='math-practice'?checkMathAnswer(q,input.answer):null;
+   if(mathGrade&&mathGrade.status!=='graded')return send(res,400,{error:'这个答案需要结合步骤确认，可以发到聊天里一起讨论；暂不记为错误。'});
    const attempt={id:randomUUID(),questionId:q.id,answer:String(input.answer).slice(0,500),correct:mathGrade?mathGrade.correct:grade(q,input.answer),hintsUsed:support.hintsUsed,support:support.solutionSeen?'solution':support.hintsUsed>0?'hint':mathGrade?'unknown':'none',at:new Date().toISOString()};
    const encouragement=practiceEncouragement(attempt,learning.attempts),firstCorrect=attempt.correct&&!learning.attempts.some(a=>a.questionId===q.id&&a.correct);
    learning.attempts.push(attempt);put('learning',learning);put(`support:${q.id}`,{...support,solutionSeen:true});return send(res,201,{...attempt,solution:q.solution,encouragement,feedback:firstCorrect?{id:attempt.id,kind:'correct_answer'}:null});
@@ -222,7 +231,8 @@ const server=createServer(async(req,res)=>{
    if(!hasNickname(profile)){profile.nicknameAsked=true;put('profile',profile);}
    const historySession={...session,messages:[...session.messages]};
    if(historySession.mathLearning?.activeQuestionId){const support=get(`support:${historySession.mathLearning.activeQuestionId}`,{});if(support.hintsUsed||support.solutionSeen)historySession.mathLearning={...historySession.mathLearning,support:support.solutionSeen?'solution':'hint'};}
-   const mathTurn=createMathLearningTurn({learning:get('learning',{questions:[],attempts:[]}),session:historySession,text,hasImages:images.length>0});
+   const mathTurn=createMathLearningTurn({learning:get('learning',{questions:[],attempts:[]}),session:historySession,text,hasImages:images.length>0,
+    reviewBankQuestion:(question,signal)=>reviewMathBankQuestion({question,modelId:model.id,environment,signal,readReview:key=>readDocument(key,null),saveReview:writeDocument})});
    session.messages.push({role:'user',content:text,at:new Date().toISOString(),...(requestedImages.length?{imageRefs:session.imageRefs,imageRef:session.imageRef}:{})});session.status='pending';put(`session:${id}`,session);
    try{
     const media=['图片','Blender 3D'].includes(input.media)?input.media:'';
@@ -234,7 +244,7 @@ const server=createServer(async(req,res)=>{
     const alreadyCorrect=mathResult.checked&&get('learning',{}).attempts.some(a=>a.questionId===mathResult.checked.questionId&&a.correct);
     const feedback=mathResult.checked?(mathResult.checked.correct&&!alreadyCorrect?{id:mathResult.checked.evidenceId,kind:'correct_answer'}:null):(parsed.feedback?{...parsed.feedback,id:randomUUID()}:null);
     const at=new Date().toISOString(),messageIndex=session.messages.length;
-    const assistantMessage={role:'assistant',content:result,agentName,at,...(feedback?{feedback}:{})};
+    const assistantMessage={role:'assistant',content:result,agentName,at,...(feedback?{feedback}:{}),...(mathResult.practiceFigures?.length?{practiceFigures:mathResult.practiceFigures}:{})};
     // Merge asynchronous media that may have finished while this reply was running.
     const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;
     session.messages.push(assistantMessage);session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);
@@ -244,7 +254,7 @@ const server=createServer(async(req,res)=>{
     if(q){const support=get(`support:${q.id}`,{hintsUsed:0});put(`support:${q.id}`,{...support,hintsUsed:support.hintsUsed+1,solutionSeen:support.solutionSeen||reveal});}
     const imageJob=imageGeneration.configured&&!media?imageJobs.enqueue(user.id,id,messageIndex,model.id,withImage.prompt):null;
     const imageJobId=imageJob?.id||null;
-    return send(res,200,{sessionId:id,messageIndex,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId});
+    return send(res,200,{sessionId:id,messageIndex,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId,practiceFigures:mathResult.practiceFigures||[]});
    }catch{const error='这次讲解未完成，请稍后重试。';const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;session.messages.push({role:'assistant',content:error,status:'error',agentName,at:new Date().toISOString()});session.status='failed';put(`session:${id}`,session);return send(res,502,{error});}finally{clearTimeout(timeout);busy.delete(user.id);}
   }
   if(url.pathname==='/api/export')return send(res,200,{version:2,exportedAt:new Date().toISOString(),learning:get('learning',{}),memory:memory(),sessions:db.prepare('SELECT body FROM documents WHERE id LIKE ?').all(prefix+'session:%').map(row=>JSON.parse(row.body))});

@@ -61,7 +61,7 @@ export function buildStudentMemory(learning, profile = defaultProfile, now = new
       unknownSupportAttempts: history.filter(a => !['none', 'hint', 'solution'].includes(a.support)).length,
       lastAt, nextReviewAt, reviewDue: !!nextReviewAt && Date.parse(nextReviewAt) <= time,
       practiceTrend, evidenceIds: independent.slice(-8).map(a => a.id),
-      recentAttempts: history.slice(-5).map(a => ({ id: a.id, questionId: a.questionId, correct: a.correct, support: a.support || 'unknown', at: a.at })),
+      recentAttempts: history.slice(-5).map(a => ({ id: a.id, questionId: a.questionId, correct: a.correct, support: a.support || 'unknown', at: a.at,...(questions.get(a.questionId).bankId?{bankId:questions.get(a.questionId).bankId,source:questions.get(a.questionId).source,reviewStatus:questions.get(a.questionId).reviewStatus}:{}) })),
       explanation: !history.length&&topicObservations.length?'已记录提问或错题分析线索，尚未通过独立作答验证；不能据此判断优势或弱项。':`${topicId?'已验证练习范围：'+skill+'；不代表整个知识点已掌握。':''}近 90 天最近最多 8 道独立作答中，${independent.length} 道不同题目在系统未提供提示时完成，分布在 ${days} 天；其中答对 ${correct} 道。`,
     };
   });

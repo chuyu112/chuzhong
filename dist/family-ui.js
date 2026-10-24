@@ -1,4 +1,5 @@
 import renderMathInElement from './vendor/katex/contrib/auto-render.mjs';
+import {attachPracticeFigures} from './math-bank-ui.js';
 
 export function setupFamily({ api, action, node, toast }) {
   const $ = id => document.getElementById(id);
@@ -54,6 +55,7 @@ export function setupFamily({ api, action, node, toast }) {
       const text = node('div', 'parent-message-text', message.content);
       renderMathInElement(text, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\[', right: '\\]', display: true }, { left: '\\(', right: '\\)', display: false }, { left: '$', right: '$', display: false }], throwOnError: false, trust: false, maxExpand: 1000, maxSize: 20 });
       row.append(text);
+      attachPracticeFigures(row,message.practiceFigures);
       if(message.videoUrl){const video=node('video','family-learning-video');video.controls=true;video.playsInline=true;video.preload='metadata';video.src=message.videoUrl;video.setAttribute('aria-label','知识点视频讲解');row.append(video);}
       else if(message.videoJob?.status==='pending')row.append(node('small','muted','视频制作中'));
       else if(message.videoError)row.append(node('small','muted',message.videoError));
@@ -84,7 +86,7 @@ export function setupFamily({ api, action, node, toast }) {
       for(const observation of topic.recentObservations||[])card.append(node('p','',`${when(observation.at)} · ${observation.source==='image_reading'?'图片读题，待确认':'分析线索，待验证'}：${observation.evidence}\n可能卡点：${observation.hypothesis}${observation.prerequisiteName?'\n待核查基础：'+observation.prerequisiteName:''}`));
       if (topic.progress) card.append(node('p', '', topic.progress.note));
       if (topic.practiceTrend) card.append(node('p', '', `前 3 道独立作答答对 ${topic.practiceTrend.earlier.correct} 道，最近 3 道答对 ${topic.practiceTrend.latest.correct} 道。题目难度未校正。`));
-      for (const attempt of topic.recentAttempts) card.append(node('small', '', `${when(attempt.at)} · ${attempt.correct ? '答对' : '待调整'} · ${{ none: '独立作答', hint: '提示后作答', solution: '已看过解答', unknown: '提示情况未记录' }[attempt.support] || '提示情况未记录'}`));
+      for (const attempt of topic.recentAttempts) card.append(node('small', '', `${when(attempt.at)} · ${attempt.correct ? '答对' : '待调整'} · ${{ none: '独立作答', hint: '提示后作答', solution: '已看过解答', unknown: '提示情况未记录' }[attempt.support] || '提示情况未记录'}${attempt.bankId?' · 题库编号 '+attempt.bankId+' · '+attempt.reviewStatus:''}`));
       $('family-evidence').append(card);
     }
     await showConversation();
