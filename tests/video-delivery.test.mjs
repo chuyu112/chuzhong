@@ -25,6 +25,7 @@ test('video appears last, survives reload, streams ranges and respects student/f
     db = new DatabaseSync(path.join(directory, 'education.sqlite'));
     browser = await chromium.launch({ channel: 'chrome', headless: true });
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await page.route('**/api/speech**', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"isolated test"}' }));
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(base);
     await page.locator('#auth-register-tab').click(); await page.locator('#auth-phone').fill('13760481026');
@@ -76,6 +77,24 @@ test('video appears last, survives reload, streams ranges and respects student/f
     const invitation = await (await page.request.post(base + '/api/family/invite', { data: {} })).json();
     assert.equal((await other.request.post(base + '/api/family/link', { data: { code: invitation.code } })).status(), 200);
     assert.equal((await other.request.get(familyUrl, { headers: { range: 'bytes=0-9' } })).status(), 206);
+    // Retry stays in ordinary chat. The original attachment resumes without
+    // adding action buttons or duplicating the video on the retry receipt.
+    delete session.messages[3].generatedVideoRef; session.messages[3].videoJob.status = 'failed'; save();
+    await page.unroute('**/api/chat'); await page.unroute('**/api/video-jobs/test-video-job');
+    let retried = false;
+    await page.route('**/api/video-jobs/test-video-job', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(retried ? { status: 'completed', videoUrl: '/api/sessions/video-lesson/videos/3' } : { status: 'failed' }) }));
+    await page.route('**/api/chat', async route => {
+      assert.equal(route.request().postDataJSON().text, '换个模型再试一次'); retried = true;
+      session.messages[3].videoJob.status = 'completed'; session.messages[3].generatedVideoRef = { filename, mimeType: 'video/mp4' }; save();
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ sessionId: session.id, messageIndex: 5, text: '好，我换个模型整理脚本，再试一次。', resumedVideoJob: { id: 'test-video-job', status: 'pending' } }) });
+    });
+    await page.reload(); await page.getByText('这次视频没生成成功。你可以说“重试”，或“换个模型重试”。', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /重试/ }).count(), 0);
+    await page.screenshot({ path: path.join(root, 'artifacts/video-retry-conversation.png') });
+    await page.locator('#chat-input').fill('换个模型再试一次'); await page.locator('#send-chat').click();
+    await video.waitFor(); assert.equal(await video.count(), 1);
+    assert.equal(await page.locator('.message.assistant').last().locator('video').count(), 0);
+    assert.equal(await page.locator('.video-generation-status.error').count(), 0);
     assert.deepEqual(errors, []); await other.close();
   } finally {
     await browser?.close(); db?.close();

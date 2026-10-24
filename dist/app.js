@@ -104,6 +104,7 @@ async function processChatQueue(){
     const reply=addMessage('assistant',result.text,result.imageUrl||null,result.agentName||agentName,result.imageError||'',result.imageJobId?{id:result.imageJobId,status:'pending'}:null);pending.replaceWith(reply);
     if(result.imageJobId)void watchImageJob(result.imageJobId,result.sessionId,reply);
     videoUI.attach(reply,{role:'assistant',videoJob:result.videoJob,videoError:result.videoError,videoUrl:result.videoUrl},result.sessionId,result.messageIndex);
+    if(result.resumedVideoJob)videoUI.resume(result.resumedVideoJob,result.sessionId);
     celebration.show(result.feedback);const readButton=reply.querySelector('.read-aloud');if(readButton)void speak(result.text,readButton,{preserveCelebration:true,stopButton:reply.querySelector('.stop-aloud')});
    }catch(error){
     const message=error.name==='TimeoutError'?'等待回复超时，请稍后重试。':error.message;

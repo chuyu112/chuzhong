@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 // Durable state is stored before any paid submission. Recovery only inspects
 // an already submitted node. It never repeats --run after an unknown outcome.
 export function createVideoJobs({ read, write, provider, plan, data, canGenerate = () => true, pollMs = 5000, waitMs = 10 * 60 * 1000 }) {
-  const active = new Set();
+  const active = new Set(), retrying = new Set();
   const jobKey = (userId, id) => `u:${userId}:video-job:${id}`;
   const sessionKey = (job) => `u:${job.userId}:session:${job.sessionId}`;
   const get = (userId, id) => read(jobKey(userId, id), null);
@@ -69,12 +69,42 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
       } catch (error) {
         const planningCodes = ['VIDEO_PLANNING_TIMEOUT', 'VIDEO_MODEL_REQUEST_FAILED', 'VIDEO_BRIEF_INVALID'];
         const failureCode = planningCodes.includes(error.code) ? error.code : 'VIDEO_STAGE_FAILED';
-        update(job, { status: 'failed', failureStage: stage, failureCode, failedAt: new Date().toISOString(), ...(planningCodes.includes(error.code) ? { diagnostics: error.diagnostics || [] } : {}), error: stage === 'planning' ? '视频文案暂时没整理好，尚未开始生成。' : '这次视频暂时没完成，讲解文字已保留。' });
+        update(job, { status: 'failed', failureStage: stage, failureCode, failedAt: new Date().toISOString(), ...(planningCodes.includes(error.code) ? { diagnostics: error.diagnostics || [] } : {}), error: '这次视频没生成成功。你可以说“重试”，或“换个模型重试”。' });
       } finally { active.delete(id); }
     })();
   }
   return {
     get, start,
+    async retry(userId, id, modelId) {
+      if (!canGenerate(userId)) throw Object.assign(new Error('视频功能暂未向此账号开放'), { status: 403 });
+      const job = get(userId, id);
+      if (!job) throw Object.assign(new Error('视频任务不存在'), { status: 404 });
+      const session = read(sessionKey(job), null), message = session?.messages?.[job.messageIndex];
+      if (!message?.videoCommand || message.videoJob?.id !== id) throw Object.assign(new Error('只能重试由 /视频生成 创建的任务'), { status: 400 });
+      const receipt = () => ({ videoJob: { id, status: job.status }, videoUrl: job.status === 'completed' ? `/api/sessions/${job.sessionId}/videos/${job.messageIndex}` : null });
+      if (job.status === 'completed' || job.status === 'pending') { start(userId, id); return receipt(); }
+      if (!provider.configured) throw Object.assign(new Error('视频生成暂未配置'), { status: 503 });
+      if (retrying.has(id)) throw Object.assign(new Error('正在核对原任务，请稍等。'), { status: 409 });
+      retrying.add(id);
+      try {
+        if (job.submittedAt) {
+          let remote;
+          try { remote = await provider.inspect(job.projectId, job.nodeId); }
+          catch { throw Object.assign(new Error('暂时无法确认原任务状态，请稍后重试。'), { status: 409 }); }
+          if (remote.status !== 'failed') {
+            if (!['pending', 'completed'].includes(remote.status)) throw Object.assign(new Error('原任务结果尚未确认，请稍后重试。'), { status: 409 });
+            // Recover the existing submission, including a completed video
+            // whose download failed. A retry must not pay for it twice.
+            delete job.error; update(job, { status: 'pending', stage: 'recovering' }); start(userId, id);
+            return receipt();
+          }
+        }
+        job.attempts = [...(job.attempts || []), { modelId: job.modelId, projectId: job.projectId, nodeId: job.nodeId, submittedAt: job.submittedAt, failureStage: job.failureStage, failureCode: job.failureCode, failedAt: job.failedAt }].slice(-5);
+        for (const field of ['prompt', 'nodeId', 'submittedAt', 'ref', 'brief', 'skill', 'title', 'error', 'failureStage', 'failureCode', 'failedAt', 'completedAt', 'diagnostics']) delete job[field];
+        update(job, { status: 'pending', stage: 'planning', modelId, retriedAt: new Date().toISOString() });
+        start(userId, id); return receipt();
+      } finally { retrying.delete(id); }
+    },
     enqueue(userId, sessionId, messageIndex, modelId) {
       if (!canGenerate(userId)) throw Object.assign(new Error('视频功能暂未向此账号开放'), { status: 403 });
       const session = read(`u:${userId}:session:${sessionId}`, null), message = session?.messages?.[messageIndex];

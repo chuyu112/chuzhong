@@ -104,5 +104,5 @@ test('planning failure records its stage and cannot submit a paid video', async 
   const saved = jobs.get('alice', job.id);
   assert.equal(saved.failureStage, 'planning'); assert.equal(saved.failureCode, 'VIDEO_BRIEF_INVALID');
   assert.ok(saved.failedAt); assert.equal(saved.diagnostics.length, 1); assert.equal(created, 0); assert.equal(saved.submittedAt, undefined);
-  assert.match(read('u:alice:session:s').messages[0].videoError, /尚未开始生成/);
+  assert.match(read('u:alice:session:s').messages[0].videoError, /你可以说“重试”/);
 });

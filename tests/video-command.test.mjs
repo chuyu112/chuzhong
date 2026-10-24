@@ -77,6 +77,14 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     assert.equal(requests.length, 1, 'one planning request; no duplicate paid task');
     const prompt = JSON.stringify(requests[0]);
     assert.match(prompt, /已加载技能：xiaozhi-video/); assert.match(prompt, /靖康之耻/);
+    const failedSession = { id: 'failed-topic', messages: [{ role: 'user', content: '/视频生成 心脏' }, { role: 'assistant', content: '任务回执', videoCommand: { key: 'failed-command', anchor: -1 }, videoJob: { id: 'failed-job', status: 'failed' } }] };
+    const failedJob = { id: 'failed-job', userId: owner.user.id, sessionId: 'failed-topic', messageIndex: 1, modelId: 'glm-5.3-flash', status: 'failed', failureStage: 'planning' };
+    for (const [id, value] of [['session:failed-topic', failedSession], ['video-job:failed-job', failedJob]]) db.prepare('INSERT INTO documents VALUES(?,?)').run(`u:${owner.user.id}:${id}`, JSON.stringify(value));
+    const retry = await chat(owner, { text: '重试', sessionId: 'failed-topic' }); assert.equal(retry.status, 200);
+    const retryResult = await retry.json(); assert.equal(retryResult.resumedVideoJob.id, 'failed-job'); assert.match(retryResult.text, /再试一次/);
+    const afterRetry = JSON.parse(db.prepare('SELECT body FROM documents WHERE id=?').get(`u:${owner.user.id}:session:failed-topic`).body);
+    assert.equal(afterRetry.messages.at(-1).kind, 'video-retry'); assert.equal(afterRetry.messages[1].videoJob.status, 'pending');
+    assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 2, 'retry reuses the seeded task');
   } finally {
     if (child.exitCode === null) await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); });
     model.closeAllConnections(); await new Promise(resolve => model.close(resolve)); db?.close();

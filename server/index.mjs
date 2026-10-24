@@ -16,6 +16,7 @@ import { planLearningVideo } from './video-planner.mjs';
 import { wantsLearningVideo, extractVideoBrief } from './video-prompt.mjs';
 import { sendSessionVideo } from './video-delivery.mjs';
 import { parseVideoCommand, queueVideoCommand } from './video-command.mjs';
+import { parseVideoRetry, replyToVideoRetry } from './video-retry.mjs';
 import { samples, grade, variant } from '../dist/core.js';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
 import { defaultAppearance, validateAppearance } from './appearance.mjs';
@@ -175,6 +176,13 @@ const server=createServer(async(req,res)=>{
    const profile=get('profile',defaultProfile),agentName=appearance().agentName;
    const session=get(`session:${id}`,{id,hints:0,messages:[{role:'assistant',kind:'greeting',content:welcomeMessage(profile,agentName),agentName,at:new Date().toISOString()}],attempt:''});
    const requestedImages=imageInputs(input);
+   if(!requestedImages.length&&!input.media&&!input.reveal&&parseVideoRetry(text,models)){
+    busy.add(user.id);
+    try{
+     const result=await replyToVideoRetry({text,session,userId:user.id,agentName,models,jobs:videoJobs,load:()=>get(`session:${id}`,session),save:value=>put(`session:${id}`,value)});
+     if(result)return send(res,200,result);
+    }finally{busy.delete(user.id);}
+   }
    if(parseVideoCommand(text)){
     if(requestedImages.length)return send(res,400,{error:'请先发送作业图片并完成讲解，再输入 /视频生成。'});
     if(!videoGeneration.configured)return send(res,503,{error:'视频生成暂未配置'});
