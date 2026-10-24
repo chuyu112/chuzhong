@@ -2,19 +2,22 @@ import { createHash } from 'node:crypto';
 
 export function parseVideoCommand(text) {
   const value = String(text).trim();
-  const prefix = /^[/／](?:视频生成|生成视频)(?=$|[\s，。,:：！!？?])\s*([\s\S]*)$/.exec(value);
-  // A child can paste the lesson, then append the command. Quoted examples,
-  // cancellations and questions about the command must not start paid work.
-  const suffix = !prefix && /[\s，。,:：！!][/／](?:视频生成|生成视频)[。！!]*$/.exec(value);
-  if (!prefix && !suffix) return null;
-  const instruction = (prefix ? prefix[1] : value.slice(0, suffix.index)).replace(/^[，。,:：！!？?\s]+/, '').trim();
-  if (suffix) {
-    const tail = instruction.split('\n').at(-1).trim();
-    if ((instruction.match(/```/g) || []).length % 2 || /(?:不要|别|不用|无需|取消|停止|禁止)(?:再|自动|帮我|执行|使用|输入|发送|这个|该|指令|命令|\s)*[，。,:：！!]*$/.test(tail)
-      || /(?:什么是|解释|介绍|输入|发送|命令|指令|示例|例如|比如|测试命令)[，。,:：\s]*$/.test(tail)) return null;
-  }
-  const referring = /^(?:请|帮我)?(?:把|将)?(?:这个|当前|刚才的?|上面的?)(?:话题|问题|内容|知识点|故事|讲解)(?:做成|制作成|生成)?(?:一[个段条])?(?:视频)?[。！!？?]*$/;
-  return { instruction, currentTopic: !instruction || referring.test(instruction) };
+  // Position and spacing are irrelevant. Keep the surrounding lesson intact;
+  // quoted examples, URLs and explicit cancellations are not generation intent.
+  const unquoted = value.replace(/```[\s\S]*?(?:```|$)|`[^`\n]*(?:`|$)|“[^”]*(?:”|$)|「[^」]*(?:」|$)|"[^"\n]*(?:"|$)/g, span => ' '.repeat(span.length));
+  const cancelled = /(?:不要|别|不用|无需|不想|不需要|不打算|取消|停止|暂停|禁止)(?:再|自动|帮我|执行|使用|输入|发送|这个|该|指令|命令|\s)*[，。,:：！!]*$/;
+  const matches = [...unquoted.matchAll(/[/／](?:视频生成|生成视频)/g)].filter(match => {
+    const before = value.slice(0, match.index), after = value.slice(match.index + match[0].length).trim();
+    return !cancelled.test(before) && !/(?:什么是|解释|介绍|输入|发送|命令|指令|示例|例如|比如|测试命令)[，。,:：\s]*$/.test(before)
+      && !/(?:https?:\/\/|www\.)\S*$/.test(before)
+      && !/^(?:器|是什么|什么意思|怎么用|如何使用|有什么用|的用法|(?:先)?(?:不要|不用|取消|停止|暂停)(?:执行|生成|了)?[。！!\s]*$)/.test(after);
+  });
+  if (!matches.length) return null;
+  let instruction = value;
+  for (const match of matches.reverse()) instruction = instruction.slice(0, match.index) + instruction.slice(match.index + match[0].length);
+  instruction = instruction.replace(/[\t ]+/g, ' ').replace(/^[，。,:：！!？?\s]+/, '').trim();
+  const referring = /^(?:(?:请你|请|帮我|麻烦你|麻烦|给我|小直)[，,:：]*)*(?:(?:把|将)?(?:这个|当前|刚才的?|上面的?|刚刚的?)(?:话题|问题|内容|知识点|故事|讲解|对话)(?:做成|制作成|生成)?(?:一[个段条])?(?:视频)?)?(?:一下|吧|啊|呀|谢谢)*[。！!？?]*$/;
+  return { instruction, currentTopic: !instruction || referring.test(instruction.replace(/\s/g, '').replace(/[，。,:：！!？?]+$/, '')) };
 }
 
 // Older releases answered the reversed command with a format correction. Such

@@ -27,6 +27,11 @@ test('video slash command is explicit, supports current/new topics and loads onl
   assert.equal(parseVideoCommand(pastedLesson + ' /生成视频').instruction, pastedLesson);
   assert.equal(parseVideoCommand(pastedLesson + ' /生成视频').currentTopic, false);
   for (const text of ['请不要 /生成视频', '先别执行 /视频生成', '什么是 /生成视频', '示例： /生成视频', '输入 /生成视频', '“/生成视频”', '```\n/生成视频']) assert.equal(parseVideoCommand(text), null);
+  for (const text of ['帮我/生成视频把刚才的话题做成视频', '请 /视频生成 这个话题', '这个话题/生成视频', '/生成视频这个话题', '小直，/生成视频一下']) {
+    assert.equal(parseVideoCommand(text)?.currentTopic, true, text); assert.equal(wantsLearningVideo(text), true);
+  }
+  for (const [text, expected] of [['勾股/生成视频定理', '勾股定理'], ['英语点餐，/视频生成 要两袋番茄酱', '英语点餐， 要两袋番茄酱'], ['A: Hello.\n/生成视频\nB: Hi.', 'A: Hello.\n\nB: Hi.']]) assert.equal(parseVideoCommand(text)?.instruction, expected);
+  for (const text of ['我不想/生成视频', '/生成视频先不要执行', 'https://example.com/生成视频', '如何使用“/生成视频”这个命令', '`/生成视频`放在哪里']) assert.equal(parseVideoCommand(text), null);
   for (const text of ['什么是/视频生成', '不要/视频生成', '/视频生成器', '“/视频生成”是什么意思', '不要/生成视频', '/生成视频是什么', '生成视频']) assert.equal(parseVideoCommand(text), null);
   const skill = loadXiaozhiVideoSkill();
   assert.equal(skill.name, 'xiaozhi-video'); assert.match(skill.sha256, /^[a-f0-9]{64}$/);
@@ -96,6 +101,7 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     assert.equal((await chat(other, { text: '/视频生成', sessionId: 'topic' })).status, 403);
     assert.equal((await chat(other, { text: '/生成视频', sessionId: 'topic' })).status, 403);
     assert.equal((await chat(other, { text: '这个话题 /生成视频', sessionId: 'topic' })).status, 403);
+    assert.equal((await chat(other, { text: '帮我/生成视频这个话题', sessionId: 'topic' })).status, 403);
     assert.equal((await chat(owner, { text: '/视频生成', sessionId: 'empty' })).status, 400);
     db = new DatabaseSync(join(directory, 'education.sqlite'));
     const session = { id: 'topic', hints: 1, messages: [{ role: 'user', content: '靖康之耻' }, { role: 'assistant', content: '1127年徽钦二帝被俘，北宋灭亡，同年赵构即位建立南宋。' }, { role: 'user', content: '/生成视频' }, { role: 'assistant', content: '旧版命令格式提示不应该成为视频主题' }] };
@@ -107,6 +113,8 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     assert.equal(stored.messages[5].videoJob.id, result.videoJob.id); assert.equal(stored.messages[5].videoCommand.anchor, 1); assert.equal(stored.status, 'completed');
     const repeated = await (await chat(owner, { text: '/视频生成', sessionId: 'topic' })).json();
     assert.equal(repeated.resumedVideoJob.id, result.videoJob.id);
+    const middle = await (await chat(owner, { text: '帮我/生成视频把刚才的话题做成视频', sessionId: 'topic' })).json();
+    assert.equal(middle.resumedVideoJob.id, result.videoJob.id, 'moving the command must not create a second task');
     const oldButton=await fetch(base+'/api/sessions/topic/videos/1',{method:'POST',headers:{cookie:owner.cookie,'content-type':'application/json'},body:JSON.stringify({modelId:'glm-5.3-flash'})});
     assert.equal(oldButton.status,410);
     assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 1);
@@ -154,6 +162,8 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     assert.equal(videoPlanningSession(pastedSaved).messages.at(-1).content, pastedText.replace(' /生成视频', ''));
     const pastedRepeat = await (await chat(owner, { text: pastedText, sessionId: 'pasted-lesson' })).json();
     assert.equal(pastedRepeat.resumedVideoJob.id, pastedResult.videoJob.id);
+    const pastedMiddle = await (await chat(owner, { text: pastedText.replace(' /生成视频', '').replace('I see', 'I/生成视频 see'), sessionId: 'pasted-lesson' })).json();
+    assert.equal(pastedMiddle.resumedVideoJob.id, pastedResult.videoJob.id, 'all surrounding dialogue survives command removal and deduplication');
     assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 4);
   } finally {
     if (child.exitCode === null) await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); });
