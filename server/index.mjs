@@ -8,6 +8,8 @@ import { VERSION as piVersion } from '@earendil-works/pi-coding-agent';
 import { loadModelEnvironment, availableModels } from './config.mjs';
 import { runTutor, canReveal } from './tutor.mjs';
 import { createImageGenerationService, extractGeneratedImagePrompt } from './image-generation.mjs';
+import { createImageJobs } from './image-jobs.mjs';
+import { planLearningImage } from './image-planner.mjs';
 import { createVideoGenerationService } from './video-generation.mjs';
 import { createVideoJobs } from './video-jobs.mjs';
 import { planLearningVideo } from './video-planner.mjs';
@@ -55,25 +57,9 @@ const canGenerateVideo=userId=>db.prepare('SELECT phone FROM accounts WHERE id=?
 const videoJobs=createVideoJobs({canGenerate:canGenerateVideo,read:readDocument,write:writeDocument,provider:videoGeneration,data,plan:(session,job)=>planLearningVideo({session,modelId:job.modelId,environment,memory:buildStudentMemory(readDocument(`u:${job.userId}:learning`,{questions:[],attempts:[]}),readDocument(`u:${job.userId}:profile`,defaultProfile)),agentName:session.messages[job.messageIndex].agentName||'小直',signal:AbortSignal.timeout(180000)})});
 if(videoGeneration.configured)videoJobs.recover(db.prepare("SELECT body FROM documents WHERE id LIKE 'u:%:video-job:%'").all());
 const busy=new Set();const host=process.env.EDU_HOST||'127.0.0.1';const port=Number(process.env.EDU_PORT||3018);
-const activeImageJobs=new Set();
+const imageJobs=createImageJobs({read:readDocument,write:writeDocument,provider:imageGeneration,data,plan:(session,job)=>planLearningImage({session,modelId:job.modelId,environment,signal:AbortSignal.timeout(90000)})});
+if(imageGeneration.configured)imageJobs.recover(db.prepare("SELECT body FROM documents WHERE id LIKE 'u:%:image-job:%'").all());
 function send(res,status,body,type='application/json; charset=utf-8'){res.writeHead(status,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(type.startsWith('application/json')?JSON.stringify(body):body);}
-function startImageJob({jobId,userId,sessionId,messageIndex,prompt}){
- const jobKey=`u:${userId}:image-job:${jobId}`,sessionKey=`u:${userId}:session:${sessionId}`;activeImageJobs.add(jobId);
- void (async()=>{
-  try{
-   const generated=await imageGeneration.generate(prompt,userId),filename=createHash('sha256').update(generated.buffer).digest('hex');
-   mkdirSync(resolve(data,'illustrations',userId),{recursive:true});writeFileSync(resolve(data,'illustrations',userId,filename),generated.buffer);
-   const session=readDocument(sessionKey,null),message=session?.messages?.[messageIndex];
-   if(!message||message.imageJob?.id!==jobId)throw new Error('Image job no longer belongs to this message');
-   message.generatedImageRef={filename,mimeType:generated.mimeType};message.imageJob.status='completed';writeDocument(sessionKey,session);
-   const job=readDocument(jobKey,{});writeDocument(jobKey,{...job,status:'completed',completedAt:new Date().toISOString()});
-  }catch{
-   const job=readDocument(jobKey,{});writeDocument(jobKey,{...job,status:'failed',completedAt:new Date().toISOString()});
-   const session=readDocument(sessionKey,null),message=session?.messages?.[messageIndex];
-   if(message?.imageJob?.id===jobId){message.imageJob.status='failed';message.imageError='这次配图暂时没生成出来，讲解文字已经保留。';writeDocument(sessionKey,session);}
-  }finally{activeImageJobs.delete(jobId);}
- })();
-}
 async function body(req,max=8*1024*1024){let size=0;const chunks=[];for await(const c of req){size+=c.length;if(size>max)throw Object.assign(new Error('请求过大'),{status:413});chunks.push(c);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw Object.assign(new Error('无效 JSON'),{status:400});}}
 const MAX_CHAT_IMAGES=9,MAX_CHAT_IMAGE_BYTES=10*1024*1024,MAX_CHAT_IMAGES_TOTAL=30*1024*1024;
 function imageInput(value){const match=/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(value));if(!match)throw Object.assign(new Error('请上传 JPG、PNG 或 WebP 图片'),{status:400});const bytes=Buffer.from(match[2],'base64');if(!bytes.length||bytes.length>MAX_CHAT_IMAGE_BYTES)throw Object.assign(new Error('单张图片不能超过 10 MB'),{status:400});return {mimeType:match[1],base64:match[2],bytes};}
@@ -130,15 +116,18 @@ const server=createServer(async(req,res)=>{
   const imageJobRoute=/^\/api\/image-jobs\/([\w-]{1,80})$/.exec(url.pathname);
   if(imageJobRoute&&req.method==='GET'){
    const job=get(`image-job:${imageJobRoute[1]}`,null);if(!job)return send(res,404,{error:'配图任务不存在'});
-   if(job.status==='pending'&&!activeImageJobs.has(imageJobRoute[1])){
-    job.status='failed';job.error='这次配图暂时没生成出来，讲解文字已经保留。';put(`image-job:${imageJobRoute[1]}`,job);
-    const saved=get(`session:${job.sessionId}`,null),message=saved?.messages?.[job.messageIndex];
-    if(message?.imageJob?.id===imageJobRoute[1]){message.imageJob.status='failed';message.imageError=job.error;put(`session:${job.sessionId}`,saved);}
-   }
-   return send(res,200,{status:job.status,imageUrl:job.status==='completed'?`/api/sessions/${job.sessionId}/images/${job.messageIndex}`:null,imageError:job.status==='failed'?(job.error||'这次配图暂时没生成出来，讲解文字已经保留。'):''});
+   if(job.status==='pending'&&imageGeneration.configured)imageJobs.start(user.id,imageJobRoute[1]);
+   const current=imageJobs.get(user.id,imageJobRoute[1])||job;
+   return send(res,200,{status:current.status,imageUrl:current.status==='completed'?`/api/sessions/${current.sessionId}/images/${current.messageIndex}`:null,imageError:current.status==='failed'?(current.error||'这次配图暂时没生成出来，讲解文字已经保留。'):''});
   }
   const photoRoute=/^\/api\/sessions\/([\w-]{1,80})\/images\/(\d{1,6})$/.exec(url.pathname);
   if(photoRoute&&req.method==='GET')return sendSessionImage(send,res,data,user.id,get(`session:${photoRoute[1]}`,{messages:[]}),Number(photoRoute[2]),Number(url.searchParams.get('item')||0));
+  if(photoRoute&&req.method==='POST'){
+   const input=await body(req,10000),model=models.find(m=>m.id===input.modelId&&m.configured);
+   if(!model)return send(res,503,{error:'请先选择已配置模型'});
+   const imageJob=imageJobs.enqueue(user.id,photoRoute[1],Number(photoRoute[2]),model.id);
+   return send(res,202,{imageJob,imageUrl:imageJob.status==='completed'?`/api/sessions/${photoRoute[1]}/images/${photoRoute[2]}`:null});
+  }
   const videoJobRoute=/^\/api\/video-jobs\/([\w-]{1,80})$/.exec(url.pathname);
   if(videoJobRoute&&req.method==='GET'){
    const job=videoJobs.get(user.id,videoJobRoute[1]);if(!job)return send(res,404,{error:'视频任务不存在'});
@@ -224,13 +213,14 @@ const server=createServer(async(req,res)=>{
     const withImage=extractGeneratedImagePrompt(extractVideoBrief(raw).text);
     const parsed=parseLearningFeedback(withImage.text,text,historySession.messages);if(!parsed.text)throw new Error('模型未返回讲解');
     const result=parsed.text,feedback=parsed.feedback?{...parsed.feedback,id:randomUUID()}:null;
-    const at=new Date().toISOString(),imageJobId=withImage.prompt&&imageGeneration.configured&&!media?randomUUID():null,messageIndex=session.messages.length;
-    const assistantMessage={role:'assistant',content:result,agentName,at,...(imageJobId?{imageJob:{id:imageJobId,status:'pending'}}:{}),...(feedback?{feedback}:{})};
+    const at=new Date().toISOString(),messageIndex=session.messages.length;
+    const assistantMessage={role:'assistant',content:result,agentName,at,...(feedback?{feedback}:{})};
     // Merge asynchronous media that may have finished while this reply was running.
     const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;
     session.messages.push(assistantMessage);session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);put(`session:${id}`,session);
 
-    if(imageJobId){put(`image-job:${imageJobId}`,{sessionId:id,messageIndex,status:'pending',createdAt:at});startImageJob({jobId:imageJobId,userId:user.id,sessionId:id,messageIndex,prompt:withImage.prompt});}
+    const imageJob=imageGeneration.configured&&!media?imageJobs.enqueue(user.id,id,messageIndex,model.id,withImage.prompt):null;
+    const imageJobId=imageJob?.id||null;
     const learning=get('learning',{});learning.helpEvents||=[];const q=learning.questions.find(q=>q.id===session.questionId);learning.helpEvents.push({id:randomUUID(),sessionId:id,at,subject:q?.subject||'待识别',topic:q?.topic||'未标注',questionId:q?.id||null,action:reveal?'reviewed_solution':'asked_for_help'});put('learning',learning);
     if(q){const support=get(`support:${q.id}`,{hintsUsed:0});put(`support:${q.id}`,{...support,hintsUsed:support.hintsUsed+1,solutionSeen:support.solutionSeen||reveal});}
     return send(res,200,{sessionId:id,messageIndex,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId});

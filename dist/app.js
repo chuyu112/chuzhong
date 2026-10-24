@@ -56,6 +56,7 @@ async function watchImageJob(jobId,sessionId,message){
   try{
    const result=await api(`/api/image-jobs/${encodeURIComponent(jobId)}`,undefined,{signal:AbortSignal.timeout(10000)});
    if(result.status==='completed'&&result.imageUrl){message.querySelector('.image-generation-status')?.remove();appendMessageImages(message,[result.imageUrl]);return;}
+   if(result.status==='skipped'){message.querySelector('.image-generation-status')?.remove();return;}
    if(result.status==='failed'){showImageJobError(message,result.imageError||'这次配图暂时没生成出来，讲解文字已经保留。');return;}
   }catch{}
   await new Promise(resolve=>setTimeout(resolve,2000));

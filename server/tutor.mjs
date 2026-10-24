@@ -4,8 +4,10 @@ import { providerConfig, runOpenAiCompatibleModel, runOpenAIResponsesModel, runA
 import { resolveTextModel } from '../vendor/cuiyi/lib/model-catalog.ts';
 import { memoryContext } from './memory.mjs';
 import { VIDEO_PROMPT_POLICY } from './video-prompt.mjs';
+import { IMAGE_PLANNING_POLICY } from './image-prompt.mjs';
 
-export function tutorPolicy({ reveal = false, hints = 0, media = '', agentName = DEFAULT_AGENT_NAME, generateVisual = false, generateVideo = false, videoRequested = false } = {}) {
+export function tutorPolicy({ reveal = false, hints = 0, media = '', agentName = DEFAULT_AGENT_NAME, generateVisual = false, generateVideo = false, videoRequested = false, imagePlanning = false } = {}) {
+  if (imagePlanning) return IMAGE_PLANNING_POLICY;
   return `你是“知序”的学习伙伴，当前昵称是${JSON.stringify(agentName)}，服务深圳初中学生，重点辅导数学，也欢迎各科知识、兴趣、日常困惑和自由提问。使用简体中文和适合手机阅读的短段落。理解学生的真实问题，不要把普通问答强行套入固定流程。
 相处方式：你叫${JSON.stringify(agentName)}，这是孩子在设置中给你取的名字。历史对话中的旧称呼不改变当前名字。先做一个耐心、亲切的 AI 学习伙伴。用初中生自然接受的语气交流，不要婴儿化，不要每句话都夸赞。学生困惑时先回应具体感受，再解释；做对一步就具体说明哪里想对了。称呼使用长期档案中已确认的昵称，不能编造姓名。首次打招呼和询问昵称由对话开场完成；已经问过、孩子跳过或直接发题时，不再追问，不要求真实姓名。不要让昵称影响孩子直接求助。昵称偏好不是能力诊断依据。
 教学原则：先讲怎么想，再让学生试一步。对作业照片先准确读题，复述已知条件、目标和关键图形关系；读不清的数字、角度和符号要请学生确认，绝不能猜。
@@ -27,12 +29,12 @@ export function canReveal(session, attempt) {
   return session.hints >= 1 && typeof attempt === 'string' && attempt.trim().length >= 2;
 }
 
-export async function runTutor({ session, text, modelId, image, images: inputImages, environment, memory, reveal = false, media = '', agentName = DEFAULT_AGENT_NAME, generateVisual = false, generateVideo = false, videoRequested = false, signal, runModelOverride }) {
+export async function runTutor({ session, text, modelId, image, images: inputImages, environment, memory, reveal = false, media = '', agentName = DEFAULT_AGENT_NAME, generateVisual = false, generateVideo = false, videoRequested = false, imagePlanning = false, signal, runModelOverride }) {
   const internalId = resolveTextModel(modelId);
   const attachments = Array.isArray(inputImages) ? inputImages : image ? [image] : [];
   const job = { id: crypto.randomUUID(), conversationId: session.id, modelId: internalId, textModelId: modelId, agentRole: 'creator', responseMode: 'general', conversationHistory: session.messages.filter(m => m.status !== 'error').slice(-40).map(m => ({ role: m.role, content: m.content })), directImageInput: attachments.length > 0, assets: attachments.map((item, index) => ({ id: `homework-photo-${index + 1}`, mime_type: item.mimeType, size_bytes: Buffer.byteLength(item.base64, 'base64') })) };
   const images = attachments.map((item, index) => ({ assetId: `homework-photo-${index + 1}`, name: `作业图片 ${index + 1}`, ordinal: index + 1, mimeType: item.mimeType, base64: item.base64, dataUrl: `data:${item.mimeType};base64,${item.base64}` }));
-  const systemPrompt = tutorPolicy({ reveal, hints: session.hints, media, agentName, generateVisual, generateVideo, videoRequested }) + memoryContext(memory);
+  const systemPrompt = tutorPolicy({ reveal, hints: session.hints, media, agentName, generateVisual, generateVideo, videoRequested, imagePlanning }) + (imagePlanning ? '' : memoryContext(memory));
   const harness = await createCuiyiPiHarnessSession({ job, systemPrompt, runModel: runModelOverride || (async ({ prompt, context, signal: piSignal }) => {
     const provider = providerConfig(internalId, environment);
     const options = { env: environment, signal: AbortSignal.any([signal || new AbortController().signal, piSignal || new AbortController().signal]), systemPrompt: context.systemPrompt, harnessMessages: context.messages, images, emptyRetryLimit: 0 };
