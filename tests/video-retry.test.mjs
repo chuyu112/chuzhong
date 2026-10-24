@@ -62,6 +62,32 @@ test('a confirmed provider failure allows one explicit new attempt and preserves
   const job = f.jobs.get('alice', 'job'); assert.equal(creates, 1); assert.equal(submits, 1); assert.equal(job.attempts[0].nodeId, 'old'); assert.equal(job.nodeId, 'new');
 });
 
+test('audio mismatch requires explicit retry before one new generation; recognizer outages recover existing media', async () => {
+  for (const code of ['VIDEO_SPEECH_ALIGNMENT_FAILED', 'VIDEO_SPEECH_RECOGNITION_FAILED']) {
+    let creates = 0, submits = 0, downloads = 0;
+    const f = fixture({ provider: {
+      inspect: async (_, node) => ({ status: node === 'old' ? 'completed' : 'pending' }),
+      createNode: async () => { creates++; return 'new'; },
+      submit: async () => { submits++; },
+      download: async () => { downloads++; throw Object.assign(new Error('still unavailable'), { code }); },
+    } });
+    Object.assign(f.job, { projectId: 'p', nodeId: 'old', submittedAt: 123, prompt: 'approved', failureCode: code });
+    f.write('u:alice:video-job:job', f.job);
+    f.jobs.recover([{ body: JSON.stringify(f.job) }]);
+    await delay(10);
+    assert.equal(submits, 0, 'failed tasks never auto-regenerate');
+    await f.jobs.retry('alice', 'job', models[1].id);
+    await delay(20);
+    if (code === 'VIDEO_SPEECH_ALIGNMENT_FAILED') {
+      assert.equal(creates, 1); assert.equal(submits, 1); assert.equal(downloads, 0);
+      assert.equal(f.jobs.get('alice', 'job').attempts[0].failureCode, code);
+    } else {
+      assert.equal(creates, 0); assert.equal(submits, 0); assert.equal(downloads, 1);
+      assert.equal(f.jobs.get('alice', 'job').failureStage, 'speech_alignment');
+    }
+  }
+});
+
 test('retry permissions and slash-command origin remain mandatory', async () => {
   const blocked = fixture({ canGenerate: () => false });
   await assert.rejects(blocked.jobs.retry('alice', 'job', models[0].id), { status: 403 });

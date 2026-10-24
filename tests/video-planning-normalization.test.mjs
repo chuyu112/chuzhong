@@ -7,11 +7,12 @@ import { planLearningVideo } from '../server/video-planner.mjs';
 import { buildStudentMemory } from '../server/memory.mjs';
 
 const fixture = JSON.parse(await readFile(new URL('./fixtures/english-roleplay.json', import.meta.url), 'utf8'));
+const adaptive = JSON.parse(await readFile(new URL('./fixtures/english-roleplay-adaptive.json', import.meta.url), 'utf8'));
 const raw = value => `<learning-video>${JSON.stringify(value)}</learning-video>`;
 const inspectDraft = value => inspectVideoBrief(raw(value), { scheduleDraft: true });
 
 test('planning repairs speech windows without changing dialogue, translations, meaning or actions', async () => {
-  const draft = structuredClone(fixture);
+  const draft = structuredClone(adaptive);
   for (const scene of draft.scenes) for (const line of scene.dialogue) { line.start = 0; line.end = scene.seconds; }
   const before = structuredClone(draft);
   assert.equal(inspectVideoBrief(raw(draft)).brief, null, 'saved scripts still require valid timings');
@@ -19,9 +20,9 @@ test('planning repairs speech windows without changing dialogue, translations, m
   const result = await planLearningVideo({ session: { id: 'timing', messages: [] }, modelId: 'deepseek-v4-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async () => { calls++; return raw(draft); } });
   assert.equal(calls, 1);
   assert.deepEqual(draft, before);
-  assert.deepEqual(result.brief.chunks, fixture.chunks);
+  assert.deepEqual(result.brief.chunks, adaptive.chunks);
   for (const [i, scene] of result.brief.scenes.entries()) for (const [j, line] of scene.dialogue.entries()) {
-    for (const field of ['speaker', 'text', 'translation', 'focus', 'action']) assert.equal(line[field], fixture.scenes[i].dialogue[j][field]);
+    for (const field of ['speaker', 'text', 'translation', 'focus', 'action']) assert.equal(line[field], adaptive.scenes[i].dialogue[j][field]);
   }
   assert.doesNotThrow(() => validateVideoBrief(result.brief));
   assert.ok(englishSubtitleCues(result.brief).every(cue => cue.start >= 0 && cue.end <= 30));
@@ -57,18 +58,16 @@ test('normalization cannot hide changed translations, missing words or excessive
   ]) { const draft = structuredClone(fixture); mutate(draft); assert.equal(inspectDraft(draft).brief, null); }
 });
 
-test('repair names the exact word sequence when the model leaves out response words', async () => {
+test('new planning upgrades older rigid scripts instead of submitting them again', async () => {
   let calls = 0;
-  const result = await planLearningVideo({ session: { id: 'missing-response', messages: [] }, modelId: 'deepseek-v4-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async ({ context }) => {
+  const result = await planLearningVideo({ session: { id: 'old-contract', messages: [] }, modelId: 'deepseek-v4-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async ({ context }) => {
     calls++;
-    if (calls === 1) { const draft = structuredClone(fixture); draft.chunks.pop(); return raw(draft); }
-    const transcript = JSON.stringify(context.messages);
-    assert.ok(transcript.includes(fixture.scenes[0].dialogue.flatMap(line => englishWords(line.text)).join(' | ')));
-    assert.match(transcript, /chunks却有12项/);
-    return raw(fixture);
+    if (calls === 1) return raw(fixture);
+    assert.match(JSON.stringify(context.messages), /teachingVersion:3/);
+    return raw(adaptive);
   } });
   assert.equal(calls, 2);
-  assert.equal(result.brief.chunks.length, 13);
+  assert.equal(result.brief.teachingVersion, 3);
 });
 
 test('compact provider prompt retains every spoken line and physical action while subtitles retain Chinese', () => {

@@ -58,7 +58,7 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
             const filename = createHash('sha256').update(result.buffer).digest('hex');
             const folder = resolve(data, 'videos', userId); mkdirSync(folder, { recursive: true });
             writeFileSync(resolve(folder, filename), result.buffer, { mode: 0o600 });
-            update(job, { status: 'completed', stage: 'completed', completedAt: new Date().toISOString(), ref: { filename, mimeType: 'video/mp4', duration: result.duration, width: result.width, height: result.height, ...(result.subtitleLanguage ? { subtitleLanguage: result.subtitleLanguage } : {}) } });
+            update(job, { ...(result.audit ? { mediaAudit: result.audit } : {}), status: 'completed', stage: 'completed', completedAt: new Date().toISOString(), ref: { filename, mimeType: 'video/mp4', duration: result.duration, width: result.width, height: result.height, ...(result.subtitleLanguage ? { subtitleLanguage: result.subtitleLanguage } : {}), ...(result.subtitleTiming ? { subtitleTiming: result.subtitleTiming } : {}) } });
             break;
           }
           if (status.status === 'failed') throw new Error('provider failed');
@@ -68,9 +68,10 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
         // task instead of generating or charging again.
       } catch (error) {
         const planningCodes = ['VIDEO_PLANNING_TIMEOUT', 'VIDEO_MODEL_REQUEST_FAILED', 'VIDEO_SCRIPT_OUTPUT_LIMIT', 'VIDEO_BRIEF_INVALID'];
-        const failureCode = error.code === 'VIDEO_SUBTITLES_FAILED' || planningCodes.includes(error.code) ? error.code : 'VIDEO_STAGE_FAILED';
+        const failureCode = ['VIDEO_SUBTITLES_FAILED', 'VIDEO_SPEECH_ALIGNMENT_FAILED', 'VIDEO_SPEECH_RECOGNITION_FAILED'].includes(error.code) || planningCodes.includes(error.code) ? error.code : 'VIDEO_STAGE_FAILED';
         if (error.code === 'VIDEO_SUBTITLES_FAILED') stage = 'subtitling';
-        const reasons = { VIDEO_SCRIPT_OUTPUT_LIMIT: '视频脚本写到一半被截断，还没有开始生成视频。', VIDEO_PLANNING_TIMEOUT: '整理视频脚本超时，还没有开始生成视频。', VIDEO_MODEL_REQUEST_FAILED: '整理视频脚本时模型调用失败，还没有开始生成视频。', VIDEO_BRIEF_INVALID: '视频脚本还没整理完整，还没有开始生成视频。', VIDEO_SUBTITLES_FAILED: '视频已生成，字幕处理没完成。' };
+        if (['VIDEO_SPEECH_ALIGNMENT_FAILED', 'VIDEO_SPEECH_RECOGNITION_FAILED'].includes(error.code)) stage = 'speech_alignment';
+        const reasons = { VIDEO_SPEECH_ALIGNMENT_FAILED: '视频的声音与脚本未能准确对应，这次先不显示错位字幕。', VIDEO_SPEECH_RECOGNITION_FAILED: '视频已生成，声音与字幕校对暂时未完成。', VIDEO_SCRIPT_OUTPUT_LIMIT: '视频脚本写到一半被截断，还没有开始生成视频。', VIDEO_PLANNING_TIMEOUT: '整理视频脚本超时，还没有开始生成视频。', VIDEO_MODEL_REQUEST_FAILED: '整理视频脚本时模型调用失败，还没有开始生成视频。', VIDEO_BRIEF_INVALID: '视频脚本还没整理完整，还没有开始生成视频。', VIDEO_SUBTITLES_FAILED: '视频已生成，字幕处理没完成。' };
         update(job, { status: 'failed', failureStage: stage, failureCode, failedAt: new Date().toISOString(), ...(planningCodes.includes(error.code) ? { diagnostics: error.diagnostics || [] } : {}), error: (reasons[failureCode] || '这次视频没生成成功。') + '你可以说“重试”，或“换个模型重试”。' });
       } finally { active.delete(id); }
     })();
@@ -93,7 +94,7 @@ export function createVideoJobs({ read, write, provider, plan, data, canGenerate
           let remote;
           try { remote = await provider.inspect(job.projectId, job.nodeId); }
           catch { throw Object.assign(new Error('暂时无法确认原任务状态，请稍后重试。'), { status: 409 }); }
-          if (remote.status !== 'failed') {
+          if (remote.status !== 'failed' && !(remote.status === 'completed' && job.failureCode === 'VIDEO_SPEECH_ALIGNMENT_FAILED')) {
             if (!['pending', 'completed'].includes(remote.status)) throw Object.assign(new Error('原任务结果尚未确认，请稍后重试。'), { status: 409 });
             // Recover the existing submission, including a completed video
             // whose download failed. A retry must not pay for it twice.

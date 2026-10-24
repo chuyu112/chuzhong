@@ -16,9 +16,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { tutorPolicy } from '../server/tutor.mjs';
 
 const brief = JSON.parse(await readFile(new URL('./fixtures/english-roleplay.json', import.meta.url), 'utf8'));
+const adaptive = JSON.parse(await readFile(new URL('./fixtures/english-roleplay-adaptive.json', import.meta.url), 'utf8'));
 const exec = promisify(execFile);
 
-test('English roleplay performs normally, repeats slowly, then explains every word including the response', () => {
+test('previous v2 scripts remain valid for already submitted video recovery', () => {
   const approved = validateVideoBrief(brief), prompt = buildVideoPrompt(approved);
   assert.equal(approved.mode, 'english_roleplay'); assert.equal(approved.cast.length, 2);
   assert.ok(prompt.length <= 3000); assert.match(prompt, /两位英语母语/); assert.match(prompt, /90—110/);
@@ -71,8 +72,8 @@ test('word timing accepts exact decimal boundaries without floating point reject
 
 test('ordinary English tutoring follows the same order and explains words in context', () => {
   const policy = tutorPolicy();
-  assert.match(policy, /正常口语速度完整演一遍双人对话→慢速重演同一段对话→按原顺序一个词一个词分析/);
-  assert.match(policy, /覆盖对话及回应的每个词/);
+  assert.match(policy, /先按内容评估时长，内容少时补一个新情境例子/);
+  assert.doesNotMatch(policy, /慢速重演保留相同角色|覆盖对话及回应的每个词/);
   assert.match(policy, /当前句中的中文意思及作用/);
   assert.match(policy, /不声称已经播放了音视频/);
 });
@@ -81,10 +82,10 @@ test('English planner repairs missing visual teaching without applying Chinese n
   let calls = 0;
   const result = await planLearningVideo({ session: { messages: [{ role: 'user', content: '在麦当劳想多要几袋番茄酱怎么说？' }] }, environment: {}, modelId: 'glm-5.3-flash', memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async ({ context }) => {
     calls++;
-    assert.match(JSON.stringify(context.messages), /先正常口语速度完整演一遍，再慢速原样重演，最后一个词一个词分析/);
-    if (calls === 1) { const invalid = structuredClone(brief); invalid.scenes[1].dialogue[0].action = ''; return '<learning-video>' + JSON.stringify(invalid) + '</learning-video>'; }
+    assert.match(JSON.stringify(context.messages), /先评估在正常语速下讲清内容需要多少秒/);
+    if (calls === 1) { const invalid = structuredClone(adaptive); invalid.scenes[1].dialogue[0].action = ''; return '<learning-video>' + JSON.stringify(invalid) + '</learning-video>'; }
     assert.match(JSON.stringify(context.messages), /dialogue\[0\].action/);
-    return '<learning-video>' + JSON.stringify(brief) + '</learning-video>';
+    return '<learning-video>' + JSON.stringify(adaptive) + '</learning-video>';
   } });
   assert.equal(calls, 2); assert.equal(result.brief.mode, 'english_roleplay');
 });
@@ -158,7 +159,7 @@ test('provider downloads and burns English subtitles while preserving 30 seconds
     const input = join(directory, 'input.mp4');
     await exec('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=0x657e83:s=854x480:r=12:d=30', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono', '-t', '30', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-pix_fmt', 'yuv420p', input]);
     const source = await readFile(input), calls = [];
-    const provider = createVideoGenerationService({ execImpl: async (file, args, options) => {
+    const provider = createVideoGenerationService({ recognizeSpeech: async () => ({ duration: 30, words: englishSubtitleCues(brief).flatMap(cue => { const words = cue.text.match(/[A-Za-z]+(?:['’][A-Za-z]+)*/g); return words.map((word, i) => ({ word, start: cue.start + i * (cue.end - cue.start) / words.length, end: cue.start + (i + 1) * (cue.end - cue.start) / words.length - .01, probability: .99 })); }) }), execImpl: async (file, args, options) => {
       calls.push(file);
       const checkedArgs = [...args];
       if (file === 'ffmpeg') checkedArgs[checkedArgs.indexOf('-loglevel') + 1] = 'info';
