@@ -53,7 +53,11 @@ export function setupFamily({ api, action, node, toast }) {
       }
       const text = node('div', 'parent-message-text', message.content);
       renderMathInElement(text, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\[', right: '\\]', display: true }, { left: '\\(', right: '\\)', display: false }, { left: '$', right: '$', display: false }], throwOnError: false, trust: false, maxExpand: 1000, maxSize: 20 });
-      row.append(text); list.append(row);
+      row.append(text);
+      if(message.videoUrl){const video=node('video','family-learning-video');video.controls=true;video.playsInline=true;video.preload='metadata';video.src=message.videoUrl;video.setAttribute('aria-label','知识点视频讲解');row.append(video);}
+      else if(message.videoJob?.status==='pending')row.append(node('small','muted','视频制作中'));
+      else if(message.videoError)row.append(node('small','muted',message.videoError));
+      list.append(row);
     }
     if (saved.status === 'pending') list.append(node('p', 'muted', '这一轮讲解尚未完成，记录会自动刷新。'));
   }

@@ -2,6 +2,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
+import { sendSessionVideo } from './video-delivery.mjs';
 
 export function messageImage(session, index) {
   return messageImages(session, index)[0] || null;
@@ -19,10 +20,10 @@ export function messageImages(session, index) {
 }
 export function publicSession(saved, imageBase) {
   const { imageRef, imageRefs, ...session } = saved;
-  return { ...session, hasImage: Boolean(imageRef || imageRefs?.length || session.messages?.some((_, index) => messageImages(session, index).length)), messages: (session.messages || []).map(({ imageRef, imageRefs, generatedImageRef, ...m }, index) => {
+  return { ...session, hasImage: Boolean(imageRef || imageRefs?.length || session.messages?.some((_, index) => messageImages(session, index).length)), messages: (session.messages || []).map(({ imageRef, imageRefs, generatedImageRef, generatedVideoRef, ...m }, index) => {
     const refs = messageImages(saved, index);
     const imageUrls = refs.map((_, item) => `${imageBase}/${index}?item=${item}`);
-    return { ...m, ...(imageUrls.length ? { imageUrl: imageUrls[0], imageUrls } : {}) };
+    return { ...m, ...(imageUrls.length ? { imageUrl: imageUrls[0], imageUrls } : {}), ...(generatedVideoRef ? { videoUrl: `${imageBase.replace(/\/images$/, '/videos')}/${index}` } : {}) };
   }) };
 }
 export function sessionList(db, userId) {
@@ -83,15 +84,15 @@ export function createFamilyRoutes({ db, data, readDocument, body, send }) {
       else db.prepare('DELETE FROM family_links WHERE parent_id=? AND student_id=?').run(user.id, String(input.id));
       return reply(200, { ok: true });
     }
-    const route = /^\/api\/family\/students\/([\w-]{1,80})(?:\/sessions\/([\w-]{1,80})(?:\/images\/(\d{1,6}))?)?$/.exec(url.pathname);
-    if (route && req.method === 'GET') {
-      const [, studentId, sessionId, imageIndex] = route;
+    const route = /^\/api\/family\/students\/([\w-]{1,80})(?:\/sessions\/([\w-]{1,80})(?:\/(images|videos)\/(\d{1,6}))?)?$/.exec(url.pathname);
+    if (route && ['GET','HEAD'].includes(req.method)) {
+      const [, studentId, sessionId, mediaType, imageIndex] = route;
       if (!allowed(user.id, studentId)) return reply(403, { error: '请先关联孩子的账号' });
       if (!account(studentId)) return reply(404, { error: '账号不存在' });
       if (sessionId) {
         const saved = readDocument(`u:${studentId}:session:${sessionId}`, null);
         if (!saved) return reply(404, { error: '对话不存在' });
-        if (imageIndex !== undefined) { sendSessionImage(send, res, data, studentId, saved, Number(imageIndex), Number(url.searchParams.get('item') || 0)); return true; }
+        if (imageIndex !== undefined) { if(mediaType==='videos')sendSessionVideo(req,res,send,data,studentId,saved,Number(imageIndex));else sendSessionImage(send, res, data, studentId, saved, Number(imageIndex), Number(url.searchParams.get('item') || 0)); return true; }
         return reply(200, publicSession(saved, `/api/family/students/${studentId}/sessions/${sessionId}/images`));
       }
       const learning = readDocument(`u:${studentId}:learning`, { questions: [], attempts: [], helpEvents: [] });

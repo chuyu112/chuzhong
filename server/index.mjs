@@ -8,6 +8,11 @@ import { VERSION as piVersion } from '@earendil-works/pi-coding-agent';
 import { loadModelEnvironment, availableModels } from './config.mjs';
 import { runTutor, canReveal } from './tutor.mjs';
 import { createImageGenerationService, extractGeneratedImagePrompt } from './image-generation.mjs';
+import { createVideoGenerationService } from './video-generation.mjs';
+import { createVideoJobs } from './video-jobs.mjs';
+import { planLearningVideo } from './video-planner.mjs';
+import { wantsLearningVideo, extractVideoBrief } from './video-prompt.mjs';
+import { sendSessionVideo } from './video-delivery.mjs';
 import { samples, grade, variant } from '../dist/core.js';
 import { buildStudentMemory, defaultProfile } from './memory.mjs';
 import { defaultAppearance, validateAppearance } from './appearance.mjs';
@@ -44,6 +49,9 @@ const paperManifest=()=>{try{return JSON.parse(readFileSync(resolve(archive,'dow
 const environment=loadModelEnvironment();const models=availableModels(environment);
 const speech=createSpeechService({apiKey:loadSpeechKey()});
 const imageGeneration=createImageGenerationService({projectId:process.env.FLOVA_IMAGE_PROJECT_ID||'',cliPath:process.env.FLOVA_CLI_PATH||'flova'});
+const videoGeneration=createVideoGenerationService({enabled:process.env.LIBTV_VIDEO_ENABLED==='true',cliPath:process.env.LIBTV_CLI_PATH||'libtv',ffprobePath:process.env.FFPROBE_PATH||'ffprobe'});
+const videoJobs=createVideoJobs({read:readDocument,write:writeDocument,provider:videoGeneration,data,plan:(session,job)=>planLearningVideo({session,modelId:job.modelId,environment,memory:buildStudentMemory(readDocument(`u:${job.userId}:learning`,{questions:[],attempts:[]}),readDocument(`u:${job.userId}:profile`,defaultProfile)),agentName:session.messages[job.messageIndex].agentName||'小直',signal:AbortSignal.timeout(180000)})});
+if(videoGeneration.configured)videoJobs.recover(db.prepare("SELECT body FROM documents WHERE id LIKE 'u:%:video-job:%'").all());
 const busy=new Set();const host=process.env.EDU_HOST||'127.0.0.1';const port=Number(process.env.EDU_PORT||3018);
 const activeImageJobs=new Set();
 function send(res,status,body,type='application/json; charset=utf-8'){res.writeHead(status,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(type.startsWith('application/json')?JSON.stringify(body):body);}
@@ -111,7 +119,7 @@ const server=createServer(async(req,res)=>{
   const appearance=()=>{const value={...defaultAppearance,...get('appearance',{})};return {...value,voiceName:resolveVoice(value.voiceName)};};
   if(url.pathname==='/api/appearance'&&req.method==='GET')return send(res,200,appearance());
   if(url.pathname==='/api/appearance'&&req.method==='POST'){const settings=validateAppearance({...appearance(),...await body(req,1500000)});put('appearance',settings);return send(res,200,settings);}
-  if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion,mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,longTermMemory:true});
+  if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion,mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,videoGeneration:videoGeneration.configured,longTermMemory:true});
   if(url.pathname==='/api/learning'&&req.method==='GET'){const learning=get('learning',{});return send(res,200,{...learning,questions:learning.questions.map(publicQuestion)});}
   if(url.pathname==='/api/memory'&&req.method==='GET')return send(res,200,memory());
   if(url.pathname==='/api/sessions'&&req.method==='GET'){
@@ -129,6 +137,19 @@ const server=createServer(async(req,res)=>{
   }
   const photoRoute=/^\/api\/sessions\/([\w-]{1,80})\/images\/(\d{1,6})$/.exec(url.pathname);
   if(photoRoute&&req.method==='GET')return sendSessionImage(send,res,data,user.id,get(`session:${photoRoute[1]}`,{messages:[]}),Number(photoRoute[2]),Number(url.searchParams.get('item')||0));
+  const videoJobRoute=/^\/api\/video-jobs\/([\w-]{1,80})$/.exec(url.pathname);
+  if(videoJobRoute&&req.method==='GET'){
+   const job=videoJobs.get(user.id,videoJobRoute[1]);if(!job)return send(res,404,{error:'视频任务不存在'});
+   if(job.status==='pending'&&videoGeneration.configured)videoJobs.start(user.id,videoJobRoute[1]);
+   return send(res,200,{status:job.status,videoUrl:job.status==='completed'?`/api/sessions/${job.sessionId}/videos/${job.messageIndex}`:null,videoError:job.error||''});
+  }
+  const videoRoute=/^\/api\/sessions\/([\w-]{1,80})\/videos\/(\d{1,6})$/.exec(url.pathname);
+  if(videoRoute&&['GET','HEAD'].includes(req.method))return sendSessionVideo(req,res,send,data,user.id,get(`session:${videoRoute[1]}`,null),Number(videoRoute[2]));
+  if(videoRoute&&req.method==='POST'){
+   const input=await body(req,10000),model=models.find(m=>m.id===input.modelId&&m.configured);if(!model)return send(res,503,{error:'请先选择已配置模型'});
+   if(busy.has(user.id))return send(res,409,{error:'等这轮讲解完成后再生成视频'});
+   const job=videoJobs.enqueue(user.id,videoRoute[1],Number(videoRoute[2]),model.id);return send(res,202,{videoJob:job});
+  }
   if(url.pathname.startsWith('/api/sessions/')&&req.method==='GET'){
    const id=url.pathname.split('/').at(-1);if(!/^[\w-]{1,80}$/.test(id))return send(res,400,{error:'无效会话'});
    return send(res,200,publicSession(get(`session:${id}`,{id,hints:0,messages:[{role:'assistant',kind:'greeting',content:welcomeMessage(get('profile',defaultProfile),appearance().agentName),agentName:appearance().agentName,at:new Date().toISOString()}]}),`/api/sessions/${id}/images`));
@@ -191,19 +212,23 @@ const server=createServer(async(req,res)=>{
    const historySession={...session,messages:[...session.messages]};
    session.messages.push({role:'user',content:text,at:new Date().toISOString(),...(requestedImages.length?{imageRefs:session.imageRefs,imageRef:session.imageRef}:{})});session.status='pending';put(`session:${id}`,session);
    try{
-    const media=['图片','视频','Blender 3D'].includes(input.media)?input.media:'';
-    const raw=await runTutor({session:historySession,text,modelId:model.id,images,environment,memory:memory(),agentName,reveal,media,generateVisual:imageGeneration.configured&&!media,signal:controller.signal});
-    const withImage=extractGeneratedImagePrompt(raw);
+    const requestedVideo=wantsLearningVideo(text,input.media),media=requestedVideo?'':['图片','Blender 3D'].includes(input.media)?input.media:'';
+    const raw=await runTutor({session:historySession,text,modelId:model.id,images,environment,memory:memory(),agentName,reveal,media,videoRequested:requestedVideo&&videoGeneration.configured,generateVisual:imageGeneration.configured&&!media&&!requestedVideo,signal:controller.signal});
+    const withImage=extractGeneratedImagePrompt(extractVideoBrief(raw).text);
     const parsed=parseLearningFeedback(withImage.text,text,historySession.messages);if(!parsed.text)throw new Error('模型未返回讲解');
     const result=parsed.text,feedback=parsed.feedback?{...parsed.feedback,id:randomUUID()}:null;
     const at=new Date().toISOString(),imageJobId=withImage.prompt&&imageGeneration.configured&&!media?randomUUID():null,messageIndex=session.messages.length;
     const assistantMessage={role:'assistant',content:result,agentName,at,...(imageJobId?{imageJob:{id:imageJobId,status:'pending'}}:{}),...(feedback?{feedback}:{})};
+    // Merge asynchronous media that may have finished while this reply was running.
+    const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;
     session.messages.push(assistantMessage);session.status='completed';session.hints++;if(input.attempt)session.attempt=String(input.attempt).slice(0,6000);put(`session:${id}`,session);
+    let videoJob=null,videoError='';
+    if(requestedVideo){try{videoJob=videoJobs.enqueue(user.id,id,messageIndex,model.id);}catch(error){videoError=error.status?error.message:'视频生成暂未完成';const saved=get(`session:${id}`,null);saved.messages[messageIndex].videoError=videoError;put(`session:${id}`,saved);}}
     if(imageJobId){put(`image-job:${imageJobId}`,{sessionId:id,messageIndex,status:'pending',createdAt:at});startImageJob({jobId:imageJobId,userId:user.id,sessionId:id,messageIndex,prompt:withImage.prompt});}
     const learning=get('learning',{});learning.helpEvents||=[];const q=learning.questions.find(q=>q.id===session.questionId);learning.helpEvents.push({id:randomUUID(),sessionId:id,at,subject:q?.subject||'待识别',topic:q?.topic||'未标注',questionId:q?.id||null,action:reveal?'reviewed_solution':'asked_for_help'});put('learning',learning);
     if(q){const support=get(`support:${q.id}`,{hintsUsed:0});put(`support:${q.id}`,{...support,hintsUsed:support.hintsUsed+1,solutionSeen:support.solutionSeen||reveal});}
-    return send(res,200,{sessionId:id,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId});
-   }catch{const error='这次讲解未完成，请稍后重试。';session.messages.push({role:'assistant',content:error,status:'error',agentName,at:new Date().toISOString()});session.status='failed';put(`session:${id}`,session);return send(res,502,{error});}finally{clearTimeout(timeout);busy.delete(user.id);}
+    return send(res,200,{sessionId:id,messageIndex,text:result,agentName,hints:session.hints,feedback,imageUrl:null,imageJobId,videoJob,videoError});
+   }catch{const error='这次讲解未完成，请稍后重试。';const latest=get(`session:${id}`,null);if(latest)session.messages=latest.messages;session.messages.push({role:'assistant',content:error,status:'error',agentName,at:new Date().toISOString()});session.status='failed';put(`session:${id}`,session);return send(res,502,{error});}finally{clearTimeout(timeout);busy.delete(user.id);}
   }
   if(url.pathname==='/api/export')return send(res,200,{version:2,exportedAt:new Date().toISOString(),learning:get('learning',{}),memory:memory(),sessions:db.prepare('SELECT body FROM documents WHERE id LIKE ?').all(prefix+'session:%').map(row=>JSON.parse(row.body))});
   if(url.pathname.startsWith('/papers/archive/')){const id=url.pathname.split('/').at(-1);const paper=paperManifest().papers.find(p=>p.id===id&&p.status==='downloaded');if(!paper?.relativePath)return send(res,404,{error:'尚未下载该试卷'});const path=resolve(archive,paper.relativePath);if(!path.startsWith(archive+'/')||!existsSync(path))return send(res,404,{error:'文件不存在'});return send(res,200,readFileSync(path),'application/pdf');}

@@ -1,5 +1,6 @@
 import { createCelebration } from './celebration.js';
 import { createSpeechPlayer } from './speech-player.js';
+import { createVideoUI } from './video-ui.js';
 import { setupAppearance } from './appearance-ui.js';
 import { welcomeMessage, DEFAULT_AGENT_NAME } from './onboarding.js';
 import { setupFamily } from './family-ui.js';
@@ -11,6 +12,7 @@ let toastTimer;
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5000);}
 async function api(url,data,options={}){const response=await fetch(url,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'content-type':'application/json'},body:data===undefined?undefined:JSON.stringify(data),...options});const result=await response.json();if(!response.ok){if(response.status===401||result.passwordChangeRequired)location.reload();throw new Error(result.error||'请求失败');}return result;}
 const action = fn => async event => {try{await fn(event);}catch(error){toast(error.message);}};
+const videoUI=createVideoUI({api,getState:()=>state,getModelId:()=>$('model-select').value,stopSpeech:()=>speech.stop(),toast});
 function node(tag,className,text){const item=document.createElement(tag);if(className)item.className=className;if(text!==undefined)item.textContent=text;return item;}
 function page(name){speech.stop();celebration.stop();closeNavigation();$('current-page-label').textContent={tutor:`问问${appearance.agentName()}`,library:'我的真题库',growth:'成长记录',family:'家长后台'}[name]||`问问${appearance.agentName()}`;document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.id===name));document.querySelectorAll('.bottom-nav button').forEach(el=>el.classList.toggle('active',el.dataset.page===name));window.scrollTo({top:0,behavior:'smooth'});if(name==='family')family.refresh().catch(e=>toast(e.message));if(name==='growth')refreshMemory().catch(e=>toast(e.message));if(name==='library')refreshPapers().catch(e=>toast(e.message));}
 document.querySelectorAll('[data-page]').forEach(el=>el.addEventListener('click',()=>page(el.dataset.page)));
@@ -44,7 +46,7 @@ function appendMessageImages(message,urls,role='assistant'){
   if(generated)img.addEventListener('load',()=>{if(followImage&&message.isConnected&&message===scroller.lastElementChild&&scroller.scrollTop>=scrollTop-8)gallery.scrollIntoView({block:'nearest',behavior:'smooth'});},{once:true});
   img.src=url;gallery.append(img);
  });
- const content=message.querySelector('.message-content');if(generated)message.append(gallery);else message.insertBefore(gallery,content||null);
+ const content=message.querySelector('.message-content');if(generated)message.insertBefore(gallery,message.querySelector('.learning-video'));else message.insertBefore(gallery,content||null);
 }
 function showImageJobError(message,error){message.querySelector('.image-generation-status')?.remove();if(error&&!message.querySelector('.image-generation-error'))message.append(node('small','image-generation-error',error));}
 async function watchImageJob(jobId,sessionId,message){
@@ -100,6 +102,7 @@ async function processChatQueue(){
     state.sessionId=result.sessionId;localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);
     const reply=addMessage('assistant',result.text,result.imageUrl||null,result.agentName||agentName,result.imageError||'',result.imageJobId?{id:result.imageJobId,status:'pending'}:null);pending.replaceWith(reply);
     if(result.imageJobId)void watchImageJob(result.imageJobId,result.sessionId,reply);
+    videoUI.attach(reply,{role:'assistant',videoJob:result.videoJob,videoError:result.videoError},result.sessionId,result.messageIndex);
     celebration.show(result.feedback);const readButton=reply.querySelector('.read-aloud');if(readButton)void speak(result.text,readButton,{preserveCelebration:true,stopButton:reply.querySelector('.stop-aloud')});
    }catch(error){
     const message=error.name==='TimeoutError'?'等待回复超时，请稍后重试。':error.message;
@@ -120,7 +123,7 @@ async function processChatQueue(){
 }
 $('chat-form').onsubmit=action(async event=>{event.preventDefault();await sendChat();});
 $('reveal-answer').onclick=action(()=>{if($('student-attempt').value.trim().length<2)return toast('请先写下你尝试的步骤。');$('review-dialog').close();return sendChat({text:`我已经尝试，请核对我的步骤并讲解：\n${$('student-attempt').value}`,reveal:true});});
-$('media-prompt').onclick=action(()=>{$('media-dialog').close();return sendChat({text:`请把已经讲过的这一步转换成${$('media-type').value}制作提示词，保持当前教学进度。`,media:$('media-type').value});});
+$('media-prompt').onclick=action(()=>{$('media-dialog').close();return sendChat({text:$('media-type').value==='视频'?'请用视频讲一下刚才的知识点。':`请把已经讲过的这一步转换成${$('media-type').value}制作提示词，保持当前教学进度。`,media:$('media-type').value});});
 function choosePhoto(){$('photo-input').click();}
 $('photo-chat').onclick=choosePhoto;
 function renderPhotoPreview(){
@@ -158,7 +161,7 @@ function renderPapers(){const subject=$('subject-filter').value,year=$('year-fil
 async function refreshPapers(){const result=await api('/api/papers');state.papers=result.papers;$('nav-paper-count').textContent=String(result.counts.downloaded||0);$('paper-stats').replaceChildren(statCard(result.counts.downloaded||0,'本地整卷 PDF'),statCard(new Set(state.papers.filter(p=>p.status==='downloaded').map(p=>p.subject)).size,'已保存科目'),statCard(result.counts.print_only||0,'仅打印来源记录'));for(const [id,values]of [['subject-filter',[...new Set(state.papers.map(p=>p.subject))]],['year-filter',[...new Set(state.papers.map(p=>p.year))].sort().reverse()]]){const select=$(id),old=select.value;select.replaceChildren(new Option(id==='subject-filter'?'全部科目':'全部年份',''),...values.map(v=>new Option(v,v)));select.value=old;}renderPapers();}
 ['subject-filter','year-filter'].forEach(id=>$(id).onchange=renderPapers);$('paper-search').oninput=renderPapers;$('refresh-papers').onclick=action(refreshPapers);
 $('export-data').onclick=action(async()=>{const data=await api('/api/export');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download=`知序学习档案-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
-async function init(){$('today-date').textContent=new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric',weekday:'long',timeZone:'Asia/Shanghai'}).format(new Date());state.config=await api('/api/config');const select=$('model-select');select.replaceChildren(...state.config.models.map(m=>new Option(`${m.label}${m.vision?' · 识图':''}${m.configured?'':' · 未配置'}`,m.id)));const preferred=localStorage.getItem('zhixu-model')||state.config.defaultModel;select.value=state.config.models.find(m=>m.id===preferred&&m.configured)?.id||state.config.models.find(m=>m.configured)?.id||preferred;select.onchange=()=>{localStorage.setItem('zhixu-model',select.value);$('selected-model-label').textContent=state.config.models.find(m=>m.id===select.value)?.label||'选择模型';$('model-status').textContent=state.config.models.find(m=>m.id===select.value)?.configured?'可用于当前讲解':'这个模型还需要在家庭设置中配置';};select.onchange();await refreshLearning();await refreshMemory();const session=await api(`/api/sessions/${state.sessionId}`);state.chatQuestionId=session.questionId||null;$('messages').replaceChildren();if(session.messages.some(m=>m.role==='user'))session.messages.forEach(m=>{const message=addMessage(m.role,m.content,m.imageUrls||m.imageUrl,m.agentName||DEFAULT_AGENT_NAME,m.imageError||'',m.imageJob||null);if(m.imageJob?.status==='pending')void watchImageJob(m.imageJob.id,session.id,message);});else showChatWelcome();localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);}
+async function init(){$('today-date').textContent=new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric',weekday:'long',timeZone:'Asia/Shanghai'}).format(new Date());state.config=await api('/api/config');const select=$('model-select');select.replaceChildren(...state.config.models.map(m=>new Option(`${m.label}${m.vision?' · 识图':''}${m.configured?'':' · 未配置'}`,m.id)));const preferred=localStorage.getItem('zhixu-model')||state.config.defaultModel;select.value=state.config.models.find(m=>m.id===preferred&&m.configured)?.id||state.config.models.find(m=>m.configured)?.id||preferred;select.onchange=()=>{localStorage.setItem('zhixu-model',select.value);$('selected-model-label').textContent=state.config.models.find(m=>m.id===select.value)?.label||'选择模型';$('model-status').textContent=state.config.models.find(m=>m.id===select.value)?.configured?'可用于当前讲解':'这个模型还需要在家庭设置中配置';};select.onchange();await refreshLearning();await refreshMemory();const session=await api(`/api/sessions/${state.sessionId}`);state.chatQuestionId=session.questionId||null;$('messages').replaceChildren();if(session.messages.some(m=>m.role==='user'))session.messages.forEach((m,index)=>{const message=addMessage(m.role,m.content,m.imageUrls||m.imageUrl,m.agentName||DEFAULT_AGENT_NAME,m.imageError||'',m.imageJob||null);videoUI.attach(message,m,session.id,index);if(m.imageJob?.status==='pending')void watchImageJob(m.imageJob.id,session.id,message);});else showChatWelcome();localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);}
 const family=setupFamily({api,action,node,toast});
 const speech=createSpeechPlayer({toast});
 const appearance=setupAppearance({api,toast,speech,onAgentName:name=>{
@@ -184,7 +187,7 @@ async function refreshConversations(){
   button.onclick=action(async()=>{
    if(state.sending)return toast('请等这一轮讲解完成。');
    const saved=await api('/api/sessions/'+session.id);state.sessionId=session.id;state.chatQuestionId=saved.questionId||null;state.images=[];$('photo-preview').replaceChildren();$('photo-preview').hidden=true;$('chat-input').value='';$('student-attempt').value='';$('messages').replaceChildren();
-   saved.messages.forEach(m=>{const message=addMessage(m.role,m.content,m.imageUrls||m.imageUrl,m.agentName||DEFAULT_AGENT_NAME,m.imageError||'',m.imageJob||null);if(m.imageJob?.status==='pending')void watchImageJob(m.imageJob.id,saved.id,message);});
+   saved.messages.forEach((m,index)=>{const message=addMessage(m.role,m.content,m.imageUrls||m.imageUrl,m.agentName||DEFAULT_AGENT_NAME,m.imageError||'',m.imageJob||null);videoUI.attach(message,m,saved.id,index);if(m.imageJob?.status==='pending')void watchImageJob(m.imageJob.id,saved.id,message);});
    localStorage.setItem('zhixu-session-'+state.user.id,state.sessionId);page('tutor');await refreshConversations();
   });
   $('conversation-list').append(button);

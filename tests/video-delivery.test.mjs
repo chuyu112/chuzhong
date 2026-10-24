@@ -1,0 +1,77 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+
+test('video appears last, survives reload, streams ranges and respects student/family access', { timeout: 45000 }, async () => {
+  const root = fileURLToPath(new URL('..', import.meta.url)), directory = await mkdtemp(path.join(tmpdir(), 'zhixu-video-delivery-'));
+  const child = spawn(process.execPath, ['server/index.mjs'], { cwd: root, env: { ...process.env, EDU_DATA_DIR: directory, EDU_PORT: '0', EDU_COOKIE_SECURE: 'false', LIBTV_VIDEO_ENABLED: 'true', LIBTV_CLI_PATH: '/nonexistent-test-cli', FLOVA_IMAGE_PROJECT_ID: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let browser, db;
+  try {
+    const base = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('startup timeout')), 10000);
+      child.stdout.on('data', value => { const match = String(value).match(/http:\/\/127.0.0.1:\d+/); if (match) { clearTimeout(timer); resolve(match[0]); } });
+    });
+    const sample = path.join(directory, 'sample.mp4');
+    await promisify(execFile)(process.env.FFMPEG_PATH || 'ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=0x758b70:s=854x480:r=10:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', sample]);
+    const mp4 = await readFile(sample), filename = createHash('sha256').update(mp4).digest('hex');
+    db = new DatabaseSync(path.join(directory, 'education.sqlite'));
+    browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const errors = []; page.on('pageerror', e => errors.push(e.message));
+    await page.goto(base);
+    await page.locator('#auth-register-tab').click(); await page.locator('#auth-phone').fill('19900000081');
+    await page.locator('#auth-password').fill('StudentPass123'); await page.locator('#auth-confirm').fill('StudentPass123'); await page.locator('#auth-submit').click(); await page.locator('#chat-welcome').waitFor();
+    const user = (await (await page.request.get(base + '/api/auth/me')).json()).user;
+    await mkdir(path.join(directory, 'videos', user.id), { recursive: true });
+    await writeFile(path.join(directory, 'videos', user.id, filename), mp4);
+    const session = { id: 'video-lesson', messages: [{ role: 'user', content: '靖康之耻' }, { role: 'assistant', content: '1127年，徽钦二帝被俘，北宋灭亡。' }] };
+    const save = () => db.prepare('INSERT OR REPLACE INTO documents VALUES(?,?)').run(`u:${user.id}:session:${session.id}`, JSON.stringify(session));
+    save(); await page.evaluate(id => localStorage.setItem('zhixu-session-' + id, 'video-lesson'), user.id); await page.reload();
+    let creates = 0, release; const ready = new Promise(resolve => release = resolve);
+    await page.route('**/api/sessions/video-lesson/videos/1', async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      creates++; session.messages[1].videoJob = { id: 'test-video-job', status: 'pending' }; save();
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ videoJob: session.messages[1].videoJob }) });
+    });
+    await page.route('**/api/video-jobs/test-video-job', async route => { await ready; await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'completed', videoUrl: '/api/sessions/video-lesson/videos/1' }) }); });
+    await page.getByRole('button', { name: '用视频讲一下', exact: true }).click();
+    await page.locator('.video-generation-status').waitFor(); assert.equal(await page.locator('#send-chat').isEnabled(), true);
+    session.messages[1].videoJob.status = 'completed'; session.messages[1].generatedVideoRef = { filename, mimeType: 'video/mp4' }; save(); release();
+    const video = page.locator('.learning-video video'); await video.waitFor();
+    await page.waitForFunction(() => document.querySelector('.learning-video video')?.readyState >= 1);
+    assert.equal(await video.getAttribute('playsinline'), '');
+    assert.equal(await page.locator('.message.assistant').last().evaluate(el => el.lastElementChild.classList.contains('learning-video')), true);
+    await page.reload(); await video.waitFor(); assert.equal(creates, 1);
+    assert.equal(await page.locator('.learning-video video').count(), 1);
+    await page.screenshot({ path: path.join(root, 'artifacts/video-delivery-mobile.png') });
+    await page.setViewportSize({ width: 1440, height: 900 }); await page.screenshot({ path: path.join(root, 'artifacts/video-delivery-desktop.png') });
+    const url = base + '/api/sessions/video-lesson/videos/1';
+    const range = await page.request.get(url, { headers: { range: 'bytes=2-11' } });
+    assert.equal(range.status(), 206); assert.deepEqual(await range.body(), mp4.subarray(2, 12));
+    assert.equal((await page.request.get(url, { headers: { range: 'bytes=999999999-' } })).status(), 416);
+    const saved = await (await page.request.get(base + '/api/sessions/video-lesson')).json();
+    assert.ok(!('generatedVideoRef' in saved.messages[1]));
+    assert.equal((await fetch(url)).status, 401);
+    const other = await browser.newContext();
+    const registration = await other.request.post(base + '/api/auth/register', { data: { phone: '19900000082', password: 'ParentPass123' } }); assert.equal(registration.status(), 201);
+    assert.equal((await other.request.get(url)).status(), 404);
+    const familyUrl = base + `/api/family/students/${user.id}/sessions/video-lesson/videos/1`;
+    assert.equal((await other.request.get(familyUrl)).status(), 403);
+    const invitation = await (await page.request.post(base + '/api/family/invite', { data: {} })).json();
+    assert.equal((await other.request.post(base + '/api/family/link', { data: { code: invitation.code } })).status(), 200);
+    assert.equal((await other.request.get(familyUrl, { headers: { range: 'bytes=0-9' } })).status(), 206);
+    assert.deepEqual(errors, []); await other.close();
+  } finally {
+    await browser?.close(); db?.close();
+    if (child.exitCode === null) await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); });
+    await rm(directory, { recursive: true, force: true });
+  }
+});
