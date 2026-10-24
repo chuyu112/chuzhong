@@ -78,3 +78,21 @@ test('the planner uses the existing conversation and repairs an invalid brief be
   assert.match(result.prompt, /480p/);
   assert.deepEqual(session, before);
 });
+
+test('video repair receives the rejected draft and exact field failure', async () => {
+  const invalid = { ...brief, scenes: brief.scenes.map((s, i) => i ? s : { ...s, narration: '过短的旁白' }) };
+  let calls = 0;
+  const result = await planLearningVideo({ session: { id: 'repair', hints: 0, messages: [{ role: 'user', content: '靖康之耻' }] }, modelId: 'glm-5.3-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async ({ context }) => {
+    calls++;
+    if (calls === 1) return '<learning-video>' + JSON.stringify(invalid) + '</learning-video>';
+    const transcript = JSON.stringify(context.messages);
+    assert.ok(transcript.includes('scenes[0].narration'));
+    assert.ok(transcript.includes('过短的旁白'));
+    return '<learning-video>' + JSON.stringify(brief) + '</learning-video>';
+  } });
+  assert.equal(calls, 2); assert.equal(result.brief.title, brief.title);
+});
+
+test('model call failures preserve a safe diagnostic code without provider secrets', async () => {
+  await assert.rejects(planLearningVideo({ session: { id: 'failure', hints: 0, messages: [] }, modelId: 'glm-5.3-flash', environment: {}, memory: buildStudentMemory({ questions: [], attempts: [] }), runModelOverride: async () => { throw new Error('private-provider-details'); } }), error => error.code === 'VIDEO_MODEL_REQUEST_FAILED' && !JSON.stringify(error).includes('private-provider-details') && !error.message.includes('private-provider-details'));
+});

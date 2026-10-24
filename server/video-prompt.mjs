@@ -13,36 +13,44 @@ export const VIDEO_DIRECTION = videoSkill.direction;
 export const VIDEO_PROMPT_POLICY = videoSkill.instructions;
 export const VIDEO_SKILL_INFO = Object.freeze({ name: videoSkill.name, sha256: videoSkill.sha256 });
 
-function cleanString(value, max, optional = false) {
+function cleanString(value, max, optional = false, field = '视频说明') {
   if (optional && value == null) return '';
-  if (typeof value !== 'string' || (!optional && !value.trim()) || value.length > max) throw new Error('视频说明格式不完整');
+  if (typeof value !== 'string' || (!optional && !value.trim())) throw new Error(`${field}需要非空文字`);
+  if (value.length > max) throw new Error(`${field}有${value.length}字，最多${max}字`);
   return value.trim();
 }
 
 export function validateVideoBrief(value) {
-  if (!value || !Array.isArray(value.facts) || value.facts.length < 1 || value.facts.length > 4 || !Array.isArray(value.scenes) || value.scenes.length !== 3) throw new Error('视频需要三个清楚的分镜');
+  if (!value || !Array.isArray(value.facts) || value.facts.length < 1 || value.facts.length > 4) throw new Error('facts需要1—4项事实');
+  if (!Array.isArray(value.scenes) || value.scenes.length !== 3) throw new Error('scenes需要三个分镜');
   const brief = {
-    title: cleanString(value.title, 60), goal: cleanString(value.goal, 120),
-    facts: value.facts.map(fact => cleanString(fact, 120)),
-    continuity: cleanString(value.continuity, 240),
-    scenes: value.scenes.map(scene => {
+    title: cleanString(value.title, 60, false, 'title'), goal: cleanString(value.goal, 120, false, 'goal'),
+    facts: value.facts.map((fact, i) => cleanString(fact, 120, false, `facts[${i}]`)),
+    continuity: cleanString(value.continuity, 240, false, 'continuity'),
+    scenes: value.scenes.map((scene, i) => {
+      if (!scene || typeof scene !== 'object') throw new Error(`scenes[${i}]需要完整分镜`);
       if (scene.seconds !== 10) throw new Error('视频时长需要合计30秒');
-      if (typeof scene.narration !== 'string' || scene.narration.trim().length < 40) throw new Error('每段旁白需要40—55字，以紧凑讲清内容');
-      return { seconds: 10, purpose: cleanString(scene.purpose, 50), start: cleanString(scene.start, 80), visual: cleanString(scene.visual, 180), camera: cleanString(scene.camera, 90), end: cleanString(scene.end, 80), sound: cleanString(scene.sound, 50), narration: cleanString(scene.narration, 55) };
+      if (typeof scene.narration !== 'string' || scene.narration.trim().length < 40) throw new Error(`scenes[${i}].narration有${typeof scene.narration === 'string' ? scene.narration.trim().length : 0}字，需要40—55字`);
+      return { seconds: 10, ...Object.fromEntries(Object.entries({ purpose: 50, start: 80, visual: 180, camera: 90, end: 80, sound: 50, narration: 55 }).map(([field, max]) => [field, cleanString(scene[field], max, false, `scenes[${i}].${field}`)])) };
     }),
   };
   const narrationLength = brief.scenes.map(s => s.narration).join('').length;
-  if (narrationLength < 135 || narrationLength > 155) throw new Error('全片旁白需要135—155字，以保证30秒讲解节奏');
+  if (narrationLength < 135 || narrationLength > 155) throw new Error(`全片旁白有${narrationLength}字，需要135—155字`);
   return brief;
 }
 
-export function extractVideoBrief(raw) {
+export function inspectVideoBrief(raw) {
   const matches = [...String(raw).matchAll(/<learning-video>([\s\S]*?)<\/learning-video>/gi)];
-  let brief = null;
-  if (matches.length === 1 && matches[0][1].length < 14000) {
-    try { brief = validateVideoBrief(JSON.parse(matches[0][1])); } catch { /* Never submit incomplete model metadata. */ }
-  }
-  return { brief, text: String(raw).replace(/<learning-video>[\s\S]*?(?:<\/learning-video>|$)/gi, '').trim() };
+  if (matches.length !== 1) return { brief: null, issue: '需要且只允许一个完整的learning-video标记' };
+  if (matches[0][1].length >= 14000) return { brief: null, issue: '分镜JSON过长，需要小于14000字' };
+  let value;
+  try { value = JSON.parse(matches[0][1]); } catch { return { brief: null, issue: 'learning-video内部不是合法JSON' }; }
+  try { return { brief: validateVideoBrief(value), issue: '' }; }
+  catch (error) { return { brief: null, issue: error.message }; }
+}
+
+export function extractVideoBrief(raw) {
+  return { brief: inspectVideoBrief(raw).brief, text: String(raw).replace(/<learning-video>[\s\S]*?(?:<\/learning-video>|$)/gi, '').trim() };
 }
 
 export function buildVideoPrompt(input) {
