@@ -1,6 +1,7 @@
 import { createCelebration } from './celebration.js';
 import { createSpeechPlayer } from './speech-player.js';
 import { createVideoUI } from './video-ui.js';
+import { createMediaProgress } from './media-progress.js';
 import { setupAppearance } from './appearance-ui.js';
 import { welcomeMessage, DEFAULT_AGENT_NAME } from './onboarding.js';
 import { setupFamily } from './family-ui.js';
@@ -33,9 +34,10 @@ function addMessage(role,text,imageUrls,agentName=appearance.agentName(),imageEr
  renderMathInElement(content,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}],trust:false,throwOnError:false,maxExpand:1000,maxSize:20});el.append(node('small','',role==='user'?'我':agentName));
  el.append(content);
  const urls=(Array.isArray(imageUrls)?imageUrls:imageUrls?[imageUrls]:[]);if(urls.length&&role!=='assistant')appendMessageImages(el,urls,role);
- if(imageJob?.status==='pending'){const status=node('small','image-generation-status','小直正在画这张图…');status.dataset.imageJobId=imageJob.id;el.append(status);}if(imageError)el.append(node('small','image-generation-error',imageError));
+ if(imageJob?.status==='pending'){const status=createMediaProgress('image');status.dataset.imageJobId=imageJob.id;el.append(status);}if(imageError)el.append(node('small','image-generation-error',imageError));
  if(role==='assistant'){const controls=node('div','speech-controls'),button=node('button','read-aloud',''),stopButton=node('button','stop-aloud','');button.type=stopButton.type='button';button.dataset.speechReady='false';button.innerHTML='<svg class="icon" aria-hidden="true"><use href="#i-volume"></use></svg>';button.setAttribute('aria-label','朗读这条回复');button.title='朗读';stopButton.innerHTML='<svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>';stopButton.setAttribute('aria-label','停止朗读');stopButton.title='停止朗读';stopButton.hidden=true;button.onclick=()=>speak(text,button,{stopButton});stopButton.onclick=()=>speech.stop();controls.append(button,stopButton);el.append(controls);}
  if(urls.length&&role==='assistant')appendMessageImages(el,urls,role);
+ if(el.querySelector('.image-generation-status'))el.append(el.querySelector('.image-generation-status'));
  $('messages').append(el);$('messages').scrollTop=$('messages').scrollHeight;return el;
 }
 function appendMessageImages(message,urls,role='assistant'){

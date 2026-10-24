@@ -1,3 +1,5 @@
+import { createMediaProgress } from './media-progress.js';
+
 export function createVideoUI({ api, getState, stopSpeech }) {
   const watchers = new Map();
   function renderVideo(message, url) {
@@ -21,8 +23,9 @@ export function createVideoUI({ api, getState, stopSpeech }) {
     let watching = false;
     function status(text, failed = false) {
       let label = message.querySelector('.video-generation-status');
-      if (!label) { label = document.createElement('small'); label.className = 'video-generation-status'; label.setAttribute('role', 'status'); controls.after(label); }
-      label.textContent = text; label.classList.toggle('error', failed);
+      const next = createMediaProgress('video');
+      if (failed) { next.textContent = text; next.classList.add('error'); }
+      if (label) label.replaceWith(next); else message.append(next);
     }
     function finish(url) {
       button.disabled = false; button.title = '查看视频'; button.setAttribute('aria-label', '查看视频');
