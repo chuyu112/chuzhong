@@ -1,11 +1,34 @@
 import { createHash } from 'node:crypto';
 
 export function parseVideoCommand(text) {
-  const match = /^[/／]视频生成(?=$|[\s，。,:：！!？?])\s*([\s\S]*)$/.exec(String(text).trim());
+  const match = /^[/／](?:视频生成|生成视频)(?=$|[\s，。,:：！!？?])\s*([\s\S]*)$/.exec(String(text).trim());
   if (!match) return null;
   const instruction = match[1].replace(/^[，。,:：！!？?\s]+/, '').trim();
   const referring = /^(?:请|帮我)?(?:把|将)?(?:这个|当前|刚才的?|上面的?)(?:话题|问题|内容|知识点|故事|讲解)(?:做成|制作成|生成)?(?:一[个段条])?(?:视频)?[。！!？?]*$/;
   return { instruction, currentTopic: !instruction || referring.test(instruction) };
+}
+
+// Older releases answered the reversed command with a format correction. Such
+// operational turns are not the lesson, even when they have no kind metadata.
+function learningTurns(session) {
+  let commandTurn = false;
+  const turns = [];
+  for (const [index, message] of session.messages.entries()) {
+    if (message.role === 'user') commandTurn = Boolean(parseVideoCommand(message.content));
+    if (commandTurn || message.kind || message.videoCommand || message.videoRetry || message.status === 'error') continue;
+    if (['user', 'assistant'].includes(message.role)) turns.push({ index, message });
+  }
+  return turns;
+}
+
+export function videoPlanningSession(session) {
+  const messages = learningTurns(session).map(turn => turn.message);
+  const lastCommand = session.messages.findLast(message => message.role === 'user' && parseVideoCommand(message.content));
+  const command = lastCommand && parseVideoCommand(lastCommand.content);
+  // A bare command inherits the lesson. An optional explicit topic is preserved
+  // as the student's latest request, without feeding receipts to the planner.
+  if (command && !command.currentTopic) messages.push({ role: 'user', content: command.instruction });
+  return { ...session, messages };
 }
 
 // This is a command, not another tutoring round. Persist a short receipt and
@@ -13,12 +36,8 @@ export function parseVideoCommand(text) {
 export function queueVideoCommand({ text, session, userId, modelId, agentName, save, jobs }) {
   const command = parseVideoCommand(text);
   if (!command) throw Object.assign(new Error('无效的视频指令'), { status: 400 });
-  let anchor = -1;
-  for (let i = session.messages.length - 1; i >= 0; i--) {
-    const message = session.messages[i];
-    if (message.role === 'assistant' && !message.kind && !message.videoCommand && message.status !== 'error') { anchor = i; break; }
-  }
-  if (command.currentTopic && anchor < 0) throw Object.assign(new Error('先聊一个话题，或输入“/视频生成 你想了解的主题”。'), { status: 400 });
+  const anchor = learningTurns(session).findLast(turn => turn.message.role === 'assistant')?.index ?? -1;
+  if (command.currentTopic && anchor < 0) throw Object.assign(new Error('还没有聊到具体内容呢。先告诉我你想了解什么，再说“/生成视频”就行。'), { status: 400 });
   const key = createHash('sha256').update(JSON.stringify([anchor, command.currentTopic ? '' : command.instruction])).digest('hex');
   // Repeated commands for the same topic refer to the original paid task.
   let index = session.messages.findIndex(message => message.videoCommand?.key === key && message.videoJob);

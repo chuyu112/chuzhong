@@ -1,10 +1,12 @@
 import { runTutor } from './tutor.mjs';
 import { inspectVideoBrief, buildVideoPrompt, VIDEO_SKILL_INFO } from './video-prompt.mjs';
+import { videoPlanningSession } from './video-command.mjs';
 
 // This stage is read-only with respect to the student's conversation. The caller
 // persists the approved brief before submitting exactly one provider job.
 export async function planLearningVideo({ session, modelId, environment, memory, agentName, signal, runModelOverride }) {
-  const request = '根据学生当前学习目标选择分镜模式，不按无关旧话题决定：英语表达、单词、语法或听说问题（包括中文问点餐怎么说）必须用english_roleplay，两位英语母语外国真人，标准美式发音、语速较慢；先拆解准确的目标句，把每个短语与物体或动作逐一对应，最后十秒完整演一遍双人对话。输出targetSentence、cast、chunks及带时间窗的dialogue，服务器逐字添加英文字幕；不用中文旁白。其他学科用knowledge：先列不可遗漏的事实、事件与学生点名的情节，补全有把握的关键转折，三段十秒讲清因果；每段中文旁白40—55字、总计135—155字，语速清晰稍快，无字幕。两种模式都写完整人物与场景统一设定、每镜教学目的、起始状态、动作、镜头、衔接、环境声，真人电影质感、无动漫或赛璐璐，30秒480p横屏，最终提示词不超过3000字。只输出一个完整的learning-video隐藏JSON标记；不要把制作指令写进台词。';
+  session = videoPlanningSession(session);
+  const request = '先综合最近多轮聊天，整理仍在延续的学习主线：学生原本想学会什么，已经讲到哪里，哪些追问补充了这条主线，哪些困惑还没解决。不能只取最后一句或把最后一个小问题当成整个主题。词义解释、格式纠正、任务回执和偶发岔题属于分支；有助理解的词义或概念追问并入主线，其余操作分支不进入视频。只有学生明确另给主题，或对话已经持续转入另一个实质学习目标时，才切换主线；不能因为出现了一个新名词就换题，也不能把教师尚未被学生选择的替换练习当成新主题。把整理出的主线写入goal，必要内容写入facts，再据此设计完整分镜，不要求孩子重复主题。根据学生当前学习目标选择分镜模式，不按无关旧话题决定：英语表达、单词、语法或听说问题（包括中文问点餐怎么说）必须用english_roleplay，两位英语母语外国真人，标准美式发音、语速较慢；先拆解准确的目标句，把每个短语与物体或动作逐一对应，最后十秒完整演一遍双人对话。输出targetSentence、cast、chunks及带时间窗的dialogue，服务器逐字添加英文字幕；不用中文旁白。其他学科用knowledge：先列不可遗漏的事实、事件与学生点名的情节，补全有把握的关键转折，三段十秒讲清因果；每段中文旁白40—55字、总计135—155字，语速清晰稍快，无字幕。两种模式都写完整人物与场景统一设定、每镜教学目的、起始状态、动作、镜头、衔接、环境声，真人电影质感、无动漫或赛璐璐，30秒480p横屏，最终提示词不超过3000字。只输出一个完整的learning-video隐藏JSON标记；不要把制作指令写进台词。';
   let previousRaw = '', issue = '';
   const diagnostics = [];
   for (let attempt = 0; attempt < 2; attempt++) {

@@ -8,22 +8,46 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
-import { parseVideoCommand } from '../server/video-command.mjs';
+import { parseVideoCommand, videoPlanningSession } from '../server/video-command.mjs';
 import { wantsLearningVideo } from '../server/video-prompt.mjs';
 import { loadXiaozhiVideoSkill } from '../server/video-skill.mjs';
 import { tutorPolicy } from '../server/tutor.mjs';
 
 test('video slash command is explicit, supports current/new topics and loads only the dedicated skill', () => {
-  for (const text of ['/视频生成', '／视频生成', '/视频生成 把这个话题做成一个视频']) {
+  for (const text of ['/视频生成', '／视频生成', '/生成视频', '／生成视频。', '/生成视频 把刚才的话题做成一个视频', '/视频生成 把这个话题做成一个视频']) {
     assert.equal(parseVideoCommand(text).currentTopic, true); assert.equal(wantsLearningVideo(text), true);
   }
   assert.equal(parseVideoCommand('/视频生成 靖康之耻').currentTopic, false);
-  for (const text of ['什么是/视频生成', '不要/视频生成', '/视频生成器', '“/视频生成”是什么意思']) assert.equal(parseVideoCommand(text), null);
+  assert.equal(parseVideoCommand('/生成视频 英语点餐').instruction, '英语点餐');
+  for (const text of ['什么是/视频生成', '不要/视频生成', '/视频生成器', '“/视频生成”是什么意思', '不要/生成视频', '/生成视频是什么', '生成视频']) assert.equal(parseVideoCommand(text), null);
   const skill = loadXiaozhiVideoSkill();
   assert.equal(skill.name, 'xiaozhi-video'); assert.match(skill.sha256, /^[a-f0-9]{64}$/);
   assert.ok(tutorPolicy({ generateVideo: true }).includes(skill.instructions));
   assert.ok(!tutorPolicy().includes(skill.instructions));
   assert.throws(() => loadXiaozhiVideoSkill('/nonexistent-skill-directory'));
+});
+
+test('a bare command uses the lesson and skips legacy command corrections and receipts', () => {
+  const lesson = [{ role: 'user', content: '我想再要一杯咖啡，用英语怎么说' }, { role: 'assistant', content: 'Could I have another coffee, please? another 表示再一个。' }];
+  const session = { id: 'coffee', messages: [
+    { role: 'assistant', kind: 'greeting', content: '你好' }, ...lesson,
+    { role: 'user', content: '/生成视频' }, { role: 'assistant', content: '这条命令的写法不太对' },
+    { role: 'user', content: '/视频生成' }, { role: 'assistant', videoCommand: { anchor: 2 }, content: '已收到' },
+  ] };
+  const original = structuredClone(session);
+  assert.deepEqual(videoPlanningSession(session).messages, lesson);
+  assert.deepEqual(session, original);
+  const changed = { ...session, messages: [...session.messages, { role: 'user', content: '/生成视频 勾股定理' }] };
+  assert.equal(videoPlanningSession(changed).messages.at(-1).content, '勾股定理');
+  const followup = { ...session, messages: [...session.messages, { role: 'user', content: '把咖啡换成茶怎么说？' }, { role: 'assistant', content: 'Could I have another tea, please?' }, { role: 'user', content: '/生成视频' }] };
+  assert.equal(videoPlanningSession(followup).messages.at(-1).content, 'Could I have another tea, please?');
+  const branch = { ...session, messages: [...session.messages,
+    { role: 'user', content: 'another是什么意思？' }, { role: 'assistant', content: 'another是再一个，这里是再要一杯。' },
+    { role: 'user', content: '/生成视频' },
+  ] };
+  assert.deepEqual(videoPlanningSession(branch).messages.map(message => message.content), [
+    ...lesson.map(message => message.content), 'another是什么意思？', 'another是再一个，这里是再要一杯。',
+  ], 'retain the main lesson together with useful branches so the planner can synthesize them');
 });
 
 test('slash command creates a durable background task, deduplicates and keeps chat usable', { timeout: 20000 }, async () => {
@@ -58,15 +82,16 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     const owner = await register('13760481026'), other = await register('19900000083');
     const chat = (account, data) => fetch(base + '/api/chat', { method: 'POST', headers: { 'content-type': 'application/json', cookie: account.cookie }, body: JSON.stringify({ modelId: 'glm-5.3-flash', ...data }), signal: AbortSignal.timeout(2500) });
     assert.equal((await chat(other, { text: '/视频生成', sessionId: 'topic' })).status, 403);
+    assert.equal((await chat(other, { text: '/生成视频', sessionId: 'topic' })).status, 403);
     assert.equal((await chat(owner, { text: '/视频生成', sessionId: 'empty' })).status, 400);
     db = new DatabaseSync(join(directory, 'education.sqlite'));
-    const session = { id: 'topic', hints: 1, messages: [{ role: 'user', content: '靖康之耻' }, { role: 'assistant', content: '1127年徽钦二帝被俘，北宋灭亡，同年赵构即位建立南宋。' }] };
+    const session = { id: 'topic', hints: 1, messages: [{ role: 'user', content: '靖康之耻' }, { role: 'assistant', content: '1127年徽钦二帝被俘，北宋灭亡，同年赵构即位建立南宋。' }, { role: 'user', content: '/生成视频' }, { role: 'assistant', content: '旧版命令格式提示不应该成为视频主题' }] };
     db.prepare('INSERT INTO documents VALUES(?,?)').run(`u:${owner.user.id}:session:topic`, JSON.stringify(session));
-    const response = await chat(owner, { text: '/视频生成 把这个话题做成一个视频', sessionId: 'topic' });
+    const response = await chat(owner, { text: '/生成视频', sessionId: 'topic' });
     assert.equal(response.status, 202);
-    const result = await response.json(); assert.equal(result.videoJob.status, 'pending'); assert.equal(result.messageIndex, 3);
+    const result = await response.json(); assert.equal(result.videoJob.status, 'pending'); assert.equal(result.messageIndex, 5);
     const stored = JSON.parse(db.prepare('SELECT body FROM documents WHERE id=?').get(`u:${owner.user.id}:session:topic`).body);
-    assert.equal(stored.messages[3].videoJob.id, result.videoJob.id); assert.equal(stored.status, 'completed');
+    assert.equal(stored.messages[5].videoJob.id, result.videoJob.id); assert.equal(stored.messages[5].videoCommand.anchor, 1); assert.equal(stored.status, 'completed');
     const repeated = await (await chat(owner, { text: '/视频生成', sessionId: 'topic' })).json();
     assert.equal(repeated.videoJob.id, result.videoJob.id);
     const oldButton=await fetch(base+'/api/sessions/topic/videos/1',{method:'POST',headers:{cookie:owner.cookie,'content-type':'application/json'},body:JSON.stringify({modelId:'glm-5.3-flash'})});
@@ -77,6 +102,8 @@ test('slash command creates a durable background task, deduplicates and keeps ch
     assert.equal(requests.length, 1, 'one planning request; no duplicate paid task');
     const prompt = JSON.stringify(requests[0]);
     assert.match(prompt, /已加载技能：xiaozhi-video/); assert.match(prompt, /靖康之耻/);
+    assert.ok(!prompt.includes('旧版命令格式提示不应该成为视频主题'));
+    assert.ok(!prompt.includes('收到，我会把这个话题做成一段视频'));
     const failedSession = { id: 'failed-topic', messages: [{ role: 'user', content: '/视频生成 心脏' }, { role: 'assistant', content: '任务回执', videoCommand: { key: 'failed-command', anchor: -1 }, videoJob: { id: 'failed-job', status: 'failed' } }] };
     const failedJob = { id: 'failed-job', userId: owner.user.id, sessionId: 'failed-topic', messageIndex: 1, modelId: 'glm-5.3-flash', status: 'failed', failureStage: 'planning' };
     for (const [id, value] of [['session:failed-topic', failedSession], ['video-job:failed-job', failedJob]]) db.prepare('INSERT INTO documents VALUES(?,?)').run(`u:${owner.user.id}:${id}`, JSON.stringify(value));
