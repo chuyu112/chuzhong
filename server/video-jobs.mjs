@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 // Durable state is stored before any paid submission. Recovery only inspects
 // an already submitted node. It never repeats --run after an unknown outcome.
-export function createVideoJobs({ read, write, provider, plan, data, pollMs = 5000, waitMs = 10 * 60 * 1000 }) {
+export function createVideoJobs({ read, write, provider, plan, data, canGenerate = () => true, pollMs = 5000, waitMs = 10 * 60 * 1000 }) {
   const active = new Set();
   const jobKey = (userId, id) => `u:${userId}:video-job:${id}`;
   const sessionKey = (job) => `u:${job.userId}:session:${job.sessionId}`;
@@ -22,7 +22,7 @@ export function createVideoJobs({ read, write, provider, plan, data, pollMs = 50
     }
   }
   function start(userId, id) {
-    if (active.has(id)) return;
+    if (!canGenerate(userId) || active.has(id)) return;
     const job = get(userId, id);
     if (!job || job.status !== 'pending') return;
     active.add(id);
@@ -68,6 +68,7 @@ export function createVideoJobs({ read, write, provider, plan, data, pollMs = 50
   return {
     get, start,
     enqueue(userId, sessionId, messageIndex, modelId) {
+      if (!canGenerate(userId)) throw Object.assign(new Error('视频功能暂未向此账号开放'), { status: 403 });
       const session = read(`u:${userId}:session:${sessionId}`, null), message = session?.messages?.[messageIndex];
       if (!message || message.role !== 'assistant' || message.kind || message.status === 'error') throw Object.assign(new Error('请先完成一段知识讲解'), { status: 400 });
       // Completed, pending and uncertain failures all keep their original task.

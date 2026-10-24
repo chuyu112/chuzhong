@@ -8,7 +8,7 @@ const exec = (file, args, options) => new Promise((resolve, reject) => {
   // CLI treats piped stdin as node-edit input; always close the empty stream.
   child.stdin?.end();
 });
-const MODEL = 'Seedance 2.5（样片模式）';
+const MODEL = 'Wan 3.0';
 const idPattern = /^[\w-]{1,80}$/;
 
 export function videoNodeState(value) {
@@ -48,9 +48,9 @@ export function createVideoGenerationService({ enabled = false, cliPath = 'libtv
     },
     async createNode(projectId, jobId, prompt) {
       ids(projectId, jobId);
-      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 14000) throw new Error('视频说明无效');
+      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 3000) throw new Error('视频说明无效');
       const value = JSON.parse(await call(['node', 'create', `learning-${jobId}`, '-p', projectId, '-t', 'video', '--prompt', prompt,
-        '-s', `model=${MODEL}`, '-s', 'modeType=text2video', '-s', 'ratio=16:9', '-s', 'resolution=480p', '-s', 'duration=30', '-s', 'enableSound=on', '-s', 'count=1']));
+        '-s', `model=${MODEL}`, '-s', 'modeType=text2video', '-s', 'ratio=16:9', '-s', 'resolution=480P', '-s', 'duration=30', '-s', 'enableSound=on', '-s', 'count=1']));
       if (!idPattern.test(value.nodeKey || '')) throw new Error('视频节点创建失败');
       return value.nodeKey;
     },

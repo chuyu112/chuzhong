@@ -25,7 +25,12 @@ test('only a complete 30-second brief becomes a generation prompt; metadata is h
   const raw = '先把事件顺序理清楚。\n<learning-video>' + JSON.stringify(brief) + '</learning-video>';
   const parsed = extractVideoBrief(raw);
   assert.equal(parsed.text, '先把事件顺序理清楚。');
+  assert.ok(parsed.brief.scenes.every(scene => !('label' in scene)), 'discard obsolete on-screen labels');
   const prompt = buildVideoPrompt(parsed.brief);
+  assert.match(prompt, /真人实拍电影质感/);
+  assert.match(prompt, /全片无字幕/);
+  assert.match(prompt, /禁止二次元、动漫、卡通、赛璐璐/);
+  assert.doesNotMatch(prompt, /短标签：/);
   for (const text of ['30秒', '480p', '16:9', '0—10秒', '10—20秒', '20—30秒', '二帝被俘']) assert.ok(prompt.includes(text));
   assert.throws(() => validateVideoBrief({ ...brief, scenes: brief.scenes.map(s => ({ ...s, seconds: 15 })) }));
   assert.throws(() => validateVideoBrief({ ...brief, scenes: brief.scenes.slice(0, 1) }));
@@ -36,9 +41,9 @@ test('only a complete 30-second brief becomes a generation prompt; metadata is h
 
 test('video preparation preserves tutoring boundaries and does not alter ordinary chat', () => {
   const policy = tutorPolicy({ generateVideo: true });
-  assert.match(policy, /作业尚未尝试的部分不在旁白、画面或标签中泄露最终答案/);
+  assert.match(policy, /作业尚未尝试的部分不在旁白或画面中泄露最终答案/);
   assert.match(policy, /不要包含孩子的姓名/);
-  assert.match(policy, /不把示意画面当成历史影像/);
+  assert.match(policy, /不把再现场景当成真实历史影像/);
   assert.doesNotMatch(tutorPolicy(), /<learning-video>/);
 });
 

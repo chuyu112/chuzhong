@@ -17,9 +17,11 @@ test('LibTV submits exact text-video settings with argument arrays and no automa
   assert.equal(await provider.createNode('project-1', 'job-1', '知识点 $(literal)'), 'node-1');
   await provider.submit('project-1', 'node-1');
   const args = calls[1];
-  for (const setting of ['modeType=text2video', 'resolution=480p', 'duration=30', 'ratio=16:9', 'enableSound=on', 'count=1']) assert.ok(args.includes(setting));
+  for (const setting of ['model=Wan 3.0', 'modeType=text2video', 'resolution=480P', 'duration=30', 'ratio=16:9', 'enableSound=on', 'count=1']) assert.ok(args.includes(setting));
   assert.equal(args[args.indexOf('--prompt') + 1], '知识点 $(literal)');
   assert.equal(calls.filter(a => a.includes('--run')).length, 1);
+  await assert.rejects(provider.createNode('project-1', 'job-2', '字'.repeat(3001)));
+  assert.equal(calls.length, 3, 'oversized prompts never reach the provider');
 });
 
 test('provider distinguishes failures and refuses incorrect duration, resolution, or silent results', () => {
@@ -76,4 +78,14 @@ test('jobs are idempotent, private, durable and preserve messages added during g
     assert.equal((await readFile(join(directory, 'videos', 'alice', done.ref.filename))).toString(), 'test-mp4');
     assert.equal(jobs.enqueue('alice', 'one', 1, 'model').id, job.id);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+ test('unauthorized accounts cannot enqueue or recover paid video jobs', () => {
+  const blocked = { id: 'blocked-job', userId: 'other', status: 'pending' };
+  let providerCalls = 0;
+  const jobs = createVideoJobs({ canGenerate: () => false, read: () => blocked, write: () => { throw new Error('must not write'); }, provider: { configured: true, createProject: async () => { providerCalls++; } }, data: '/unused' });
+  assert.throws(() => jobs.enqueue('other', 'lesson', 1, 'model'), { status: 403 });
+  jobs.recover([{ body: JSON.stringify(blocked) }]);
+  jobs.start('other', blocked.id);
+  assert.equal(providerCalls, 0);
 });

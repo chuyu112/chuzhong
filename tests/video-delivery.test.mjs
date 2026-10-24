@@ -27,8 +27,9 @@ test('video appears last, survives reload, streams ranges and respects student/f
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(base);
-    await page.locator('#auth-register-tab').click(); await page.locator('#auth-phone').fill('19900000081');
+    await page.locator('#auth-register-tab').click(); await page.locator('#auth-phone').fill('13760481026');
     await page.locator('#auth-password').fill('StudentPass123'); await page.locator('#auth-confirm').fill('StudentPass123'); await page.locator('#auth-submit').click(); await page.locator('#chat-welcome').waitFor();
+    assert.equal((await (await page.request.get(base + '/api/config')).json()).videoGeneration, true);
     const user = (await (await page.request.get(base + '/api/auth/me')).json()).user;
     await mkdir(path.join(directory, 'videos', user.id), { recursive: true });
     await writeFile(path.join(directory, 'videos', user.id, filename), mp4);
@@ -63,6 +64,10 @@ test('video appears last, survives reload, streams ranges and respects student/f
     const other = await browser.newContext();
     const registration = await other.request.post(base + '/api/auth/register', { data: { phone: '19900000082', password: 'ParentPass123' } }); assert.equal(registration.status(), 201);
     assert.equal((await other.request.get(url)).status(), 404);
+    assert.equal((await (await other.request.get(base + '/api/config')).json()).videoGeneration, false);
+    assert.equal((await other.request.post(url, { data: {} })).status(), 403);
+    for (const data of [{ text: '用视频讲讲靖康之耻' }, { text: '靖康之耻', media: '视频' }]) assert.equal((await other.request.post(base + '/api/chat', { data })).status(), 403);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM documents WHERE id LIKE 'u:%:video-job:%'").get().n, 0);
     const familyUrl = base + `/api/family/students/${user.id}/sessions/video-lesson/videos/1`;
     assert.equal((await other.request.get(familyUrl)).status(), 403);
     const invitation = await (await page.request.post(base + '/api/family/invite', { data: {} })).json();

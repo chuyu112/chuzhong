@@ -50,7 +50,8 @@ const environment=loadModelEnvironment();const models=availableModels(environmen
 const speech=createSpeechService({apiKey:loadSpeechKey()});
 const imageGeneration=createImageGenerationService({projectId:process.env.FLOVA_IMAGE_PROJECT_ID||'',cliPath:process.env.FLOVA_CLI_PATH||'flova'});
 const videoGeneration=createVideoGenerationService({enabled:process.env.LIBTV_VIDEO_ENABLED==='true',cliPath:process.env.LIBTV_CLI_PATH||'libtv',ffprobePath:process.env.FFPROBE_PATH||'ffprobe'});
-const videoJobs=createVideoJobs({read:readDocument,write:writeDocument,provider:videoGeneration,data,plan:(session,job)=>planLearningVideo({session,modelId:job.modelId,environment,memory:buildStudentMemory(readDocument(`u:${job.userId}:learning`,{questions:[],attempts:[]}),readDocument(`u:${job.userId}:profile`,defaultProfile)),agentName:session.messages[job.messageIndex].agentName||'小直',signal:AbortSignal.timeout(180000)})});
+const canGenerateVideo=userId=>db.prepare('SELECT phone FROM accounts WHERE id=?').get(userId)?.phone==='13760481026';
+const videoJobs=createVideoJobs({canGenerate:canGenerateVideo,read:readDocument,write:writeDocument,provider:videoGeneration,data,plan:(session,job)=>planLearningVideo({session,modelId:job.modelId,environment,memory:buildStudentMemory(readDocument(`u:${job.userId}:learning`,{questions:[],attempts:[]}),readDocument(`u:${job.userId}:profile`,defaultProfile)),agentName:session.messages[job.messageIndex].agentName||'小直',signal:AbortSignal.timeout(180000)})});
 if(videoGeneration.configured)videoJobs.recover(db.prepare("SELECT body FROM documents WHERE id LIKE 'u:%:video-job:%'").all());
 const busy=new Set();const host=process.env.EDU_HOST||'127.0.0.1';const port=Number(process.env.EDU_PORT||3018);
 const activeImageJobs=new Set();
@@ -119,7 +120,7 @@ const server=createServer(async(req,res)=>{
   const appearance=()=>{const value={...defaultAppearance,...get('appearance',{})};return {...value,voiceName:resolveVoice(value.voiceName)};};
   if(url.pathname==='/api/appearance'&&req.method==='GET')return send(res,200,appearance());
   if(url.pathname==='/api/appearance'&&req.method==='POST'){const settings=validateAppearance({...appearance(),...await body(req,1500000)});put('appearance',settings);return send(res,200,settings);}
-  if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion,mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,videoGeneration:videoGeneration.configured,longTermMemory:true});
+  if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion,mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,videoGeneration:videoGeneration.configured&&canGenerateVideo(user.id),longTermMemory:true});
   if(url.pathname==='/api/learning'&&req.method==='GET'){const learning=get('learning',{});return send(res,200,{...learning,questions:learning.questions.map(publicQuestion)});}
   if(url.pathname==='/api/memory'&&req.method==='GET')return send(res,200,memory());
   if(url.pathname==='/api/sessions'&&req.method==='GET'){
@@ -146,6 +147,7 @@ const server=createServer(async(req,res)=>{
   const videoRoute=/^\/api\/sessions\/([\w-]{1,80})\/videos\/(\d{1,6})$/.exec(url.pathname);
   if(videoRoute&&['GET','HEAD'].includes(req.method))return sendSessionVideo(req,res,send,data,user.id,get(`session:${videoRoute[1]}`,null),Number(videoRoute[2]));
   if(videoRoute&&req.method==='POST'){
+   if(!canGenerateVideo(user.id))return send(res,403,{error:'视频功能暂未向此账号开放'});
    const input=await body(req,10000),model=models.find(m=>m.id===input.modelId&&m.configured);if(!model)return send(res,503,{error:'请先选择已配置模型'});
    if(busy.has(user.id))return send(res,409,{error:'等这轮讲解完成后再生成视频'});
    const job=videoJobs.enqueue(user.id,videoRoute[1],Number(videoRoute[2]),model.id);return send(res,202,{videoJob:job});
@@ -182,6 +184,7 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/api/variants'&&req.method==='POST'){const input=await body(req,10000);const learning=get('learning',{});const q=learning.questions.find(q=>q.id===input.questionId);if(!q?.template)return send(res,400,{error:'该题尚无变式模板'});const generated=variant(q);learning.questions.push(generated);put('learning',learning);return send(res,201,publicQuestion(generated));}
   if(url.pathname==='/api/chat'&&req.method==='POST'){
    const input=await body(req,45*1024*1024);const text=String(input.text||'').trim();if(!text||text.length>12000)return send(res,400,{error:'请输入 1—12000 字的问题'});
+   if(wantsLearningVideo(text,input.media)&&!canGenerateVideo(user.id))return send(res,403,{error:'视频功能暂未向此账号开放'});
    const id=/^[\w-]{1,80}$/.test(input.sessionId||'')?input.sessionId:randomUUID();if(busy.has(user.id))return send(res,409,{error:'老师正在回答，请等这一轮完成'});
    const profile=get('profile',defaultProfile),agentName=appearance().agentName;
    const session=get(`session:${id}`,{id,hints:0,messages:[{role:'assistant',kind:'greeting',content:welcomeMessage(profile,agentName),agentName,at:new Date().toISOString()}],attempt:''});
