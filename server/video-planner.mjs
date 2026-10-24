@@ -4,12 +4,12 @@ import { extractVideoBrief, buildVideoPrompt } from './video-prompt.mjs';
 // This stage is read-only with respect to the student's conversation. The caller
 // persists the approved brief before submitting exactly one provider job.
 export async function planLearningVideo({ session, modelId, environment, memory, agentName, signal, runModelOverride }) {
-  const request = '请把当前对话中学生的问题和已经讲过的内容，整理为一条30秒学习视频。聚焦当前卡点，保持教学进度。先核对知识事实，再按隐藏视频标记格式给出三段各10秒的分镜，每段旁白不超过45字。使用真人实拍质感、真实人物与场景，无字幕、无画面文字，不用二次元、动漫、插画或赛璐璐；知识点通过动作实物与中文画外音说明。';
+  const request = '根据当前学生问题和已讲内容，完成一条30秒真人知识短片的完整导演方案。先提炼学习目标与已知事实，设计统一的人物、时代、服装、场景、道具、光线，再用三段各10秒讲清背景、核心事件或原理、结果。每段写明教学目的、起始站位、具体动作、镜头、结束状态、环境声和逐字旁白，不能只说电影质感。无字幕、无画面文字，无二次元、动漫或赛璐璐。旁白每段不超过45字、全片不超过130字；按隐藏视频JSON结构输出，所有字段都填完整。';
   for (let attempt = 0; attempt < 2; attempt++) {
     const raw = await runTutor({
       session, modelId, environment, memory, agentName, signal, runModelOverride,
       generateVideo: true,
-      text: request + (attempt ? '上一次输出未通过格式或时长检查。请重新组织，确保只有一个完整JSON标记、三个分镜、每段10秒且全片旁白不超过130字。不要添加新事实。' : ''),
+      text: request + (attempt ? '上一次输出未通过完整性、字数或时长检查。请重新组织，确保一个完整JSON标记，包含continuity与每段purpose、start、visual、camera、end、sound、narration。三个分镜各10秒，每段旁白必须28—45字，全片不超过130字。旁白讲到的新人物、新事件要在对应分镜实际呈现。压缩修饰，使完整制作提示词不超过3000字，不要添加新事实。' : ''),
     });
     const result = extractVideoBrief(raw);
     if (result.brief) {

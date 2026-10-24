@@ -8,10 +8,11 @@ import { buildStudentMemory } from '../server/memory.mjs';
 const brief = {
   title: '靖康之耻', goal: '理解靖康之变与北宋灭亡、南宋建立的联系',
   facts: ['1127年，宋徽宗、宋钦宗被金军俘虏，北宋灭亡。', '同年赵构即位，史称南宋。'],
+  continuity: '宋代历史真人再现。徽宗为年长男子、钦宗为成年男子，两人穿朴素灰色宋式长袍；赵构为年轻男子，穿深红宋式袍服。城门为第一二镜的空间锚点，第三镜另切官署内景。低饱和自然光，无文字道具。',
   scenes: [
-    { seconds: 10, visual: '地图上金军向汴京推进，镜头进入宋代城墙。', camera: '地图缓慢推进至城门', narration: '北宋末年，金军南下，攻入都城汴京，也就是今天的河南开封。', label: '汴京' },
-    { seconds: 10, visual: '时间线出现1127年，两位皇帝的插画随队伍北去。', camera: '平移跟随北行队伍', narration: '一一二七年，宋徽宗、宋钦宗被俘北去，北宋灭亡。这就是靖康之变。', label: '1127年' },
-    { seconds: 10, visual: '地图转到应天府，赵构即位，画面连接南宋建立的时间节点。', camera: '拉远展示时间线', narration: '同年，赵构在应天府即位，史称南宋。记住：二帝被俘，北宋灭亡，南宋建立。', label: '南宋建立' },
+    { seconds: 10, purpose: '交代金军进攻与北宋都城危机', start: '汴京城门关闭，守军在墙上戒备', visual: '远处金军逐渐接近城门，守军转身传递警讯', camera: '城墙中远景缓慢推近，焦点保持在守军与城门', end: '停在沉重的城门，下一镜切到城门外', sound: '低沉脚步与城外风声', narration: '北宋末年，金军南下，攻入都城汴京，也就是今天的河南开封。', label: '汴京' },
+    { seconds: 10, purpose: '说明两位皇帝被俘与北宋灭亡', start: '切到城门外，徽宗和钦宗站在看守身前', visual: '看守引导两人离开城门，二人回望后随队伍前行', camera: '中景平移跟随二人，城门在身后逐渐远去', end: '二人随队伍走远，明确切到同年另一地点', sound: '缓慢脚步与衣料摩擦声', narration: '一一二七年，宋徽宗、宋钦宗被俘北去，北宋灭亡。这就是靖康之变。', label: '1127年' },
+    { seconds: 10, purpose: '交代南宋建立并收束事件顺序', start: '另切应天府官署内景，赵构站在官员面前', visual: '赵构走向主位转身面向官员，官员肃立行礼', camera: '中景固定机位，保持赵构与官员的空间关系清楚', end: '赵构面向官员站定，停留一秒结束', sound: '室内轻微脚步，最后安静收束', narration: '同年，赵构在应天府即位，史称南宋。记住：二帝被俘，北宋灭亡，南宋建立。', label: '南宋建立' },
   ],
 };
 
@@ -31,10 +32,15 @@ test('only a complete 30-second brief becomes a generation prompt; metadata is h
   assert.match(prompt, /全片无字幕/);
   assert.match(prompt, /禁止二次元、动漫、卡通、赛璐璐/);
   assert.doesNotMatch(prompt, /短标签：/);
+  for (const field of ['continuity']) assert.throws(() => validateVideoBrief({ ...brief, [field]: '' }));
+  for (const field of ['purpose', 'start', 'end', 'sound']) assert.throws(() => validateVideoBrief({ ...brief, scenes: brief.scenes.map(scene => ({ ...scene, [field]: '' })) }));
+  assert.ok(prompt.length <= 3000);
+  for (const scene of brief.scenes) for (const field of ['purpose', 'start', 'visual', 'camera', 'end', 'sound', 'narration']) assert.ok(prompt.includes(scene[field]), `missing ${field} in provider prompt`);
   for (const text of ['30秒', '480p', '16:9', '0—10秒', '10—20秒', '20—30秒', '二帝被俘']) assert.ok(prompt.includes(text));
   assert.throws(() => validateVideoBrief({ ...brief, scenes: brief.scenes.map(s => ({ ...s, seconds: 15 })) }));
   assert.throws(() => validateVideoBrief({ ...brief, scenes: brief.scenes.slice(0, 1) }));
   assert.throws(() => validateVideoBrief({ ...brief, scenes: brief.scenes.map(s => ({ ...s, narration: '字'.repeat(150) })) }));
+  assert.throws(() => validateVideoBrief({ ...brief, scenes: brief.scenes.map(s => ({ ...s, narration: '过短的旁白。' })) }));
   assert.equal(extractVideoBrief(raw + '<learning-video>{}</learning-video>').brief, null);
   assert.deepEqual(extractVideoBrief('正文<learning-video>{"bad":'), { text: '正文', brief: null });
 });
