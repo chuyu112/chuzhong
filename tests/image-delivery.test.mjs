@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
-test('a delayed learning image appears after the explanation, stays visible, and survives reload', { timeout: 45000 }, async () => {
+test('a delayed learning image opens from the explanation into the preview and survives reload', { timeout: 45000 }, async () => {
  const directory = await mkdtemp(path.join(tmpdir(), 'zhixu-image-delivery-'));
  const child = spawn(process.execPath, ['server/index.mjs'], { cwd: root, env: { ...process.env, EDU_DATA_DIR: directory, EDU_PORT: '0', EDU_HOST: '127.0.0.1', EDU_COOKIE_SECURE: 'false', FLOVA_IMAGE_PROJECT_ID: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
  let browser, db;
@@ -67,24 +67,25 @@ test('a delayed learning image appears after the explanation, stays visible, and
   session.messages[1].generatedImageRef = { filename, mimeType: 'image/png' };
   save(); releaseImage();
   const loadedImage = () => page.waitForFunction(() => {
-   const image = document.querySelector('.message.assistant img'); return image?.complete && image.naturalWidth > 0;
+   const image = document.querySelector('#media-stage img'); return image?.complete && image.naturalWidth > 0;
   });
+  await page.locator('.generated-media-link', { hasText: '查看图片' }).click();
   await loadedImage();
   await mkdir(path.join(root, 'artifacts'), { recursive: true });
   await page.screenshot({ path: path.join(root, 'artifacts/image-delivery-mobile.png') });
-  const afterText = () => page.locator('.message.assistant').last().evaluate(message => Boolean(message.querySelector('.message-content').compareDocumentPosition(message.querySelector('.chat-attachments')) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const afterText = () => page.locator('.message.assistant').last().evaluate(message => Boolean(message.querySelector('.message-content').compareDocumentPosition(message.querySelector('.generated-media-links')) & Node.DOCUMENT_POSITION_FOLLOWING));
   assert.equal(await afterText(), true, 'generated diagrams should follow the explanation');
-  assert.equal(await page.locator('.message.assistant').last().evaluate(message => message.lastElementChild.classList.contains('generated-illustration')), true, 'the diagram should be the last part of the reply');
+  assert.equal(await page.locator('.message.assistant').last().evaluate(message => message.lastElementChild.classList.contains('generated-media-links')), true, 'the diagram should be the last part of the reply');
   const imageInView = () => page.waitForFunction(() => {
-   const image = document.querySelector('.message.assistant img').getBoundingClientRect(), viewport = document.querySelector('#messages').getBoundingClientRect();
+   const image = document.querySelector('#media-stage img').getBoundingClientRect(), viewport = document.querySelector('#media-stage').getBoundingClientRect();
    return image.top >= viewport.top - 2 && image.bottom <= viewport.bottom + 2;
   });
   await imageInView();
   await page.screenshot({ path: path.join(root, 'artifacts/image-delivery-mobile.png') });
-  await page.reload(); await loadedImage(); await imageInView();
+  await page.reload(); await page.locator('.generated-media-link', { hasText: '查看图片' }).click(); await loadedImage(); await imageInView();
   assert.equal(await afterText(), true);
-  assert.equal(await page.locator('.message.assistant').last().evaluate(message => message.lastElementChild.classList.contains('generated-illustration')), true);
-  assert.equal(await page.locator('.message.assistant img').count(), 1);
+  assert.equal(await page.locator('.message.assistant').last().evaluate(message => message.lastElementChild.classList.contains('generated-media-links')), true);
+  assert.equal(await page.locator('#media-stage img').count(), 1);
   assert.equal(calls, 1, 'restoring a diagram must not submit another generation');
   await page.setViewportSize({ width: 1440, height: 900 });
   await imageInView();

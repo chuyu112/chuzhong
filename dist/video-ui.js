@@ -1,15 +1,22 @@
 import { createMediaProgress } from './media-progress.js';
 
-export function createVideoUI({ api, getState, stopSpeech }) {
+export function createVideoUI({ api, getState, stopSpeech, onPreview = null, onMediaReady = () => {} }) {
   const watchers = new Map();
   function renderVideo(message, url) {
-    if (message.querySelector('video')) return;
+    if (message.querySelector('.learning-video')) return;
     const figure = document.createElement('figure'); figure.className = 'learning-video';
     const video = document.createElement('video');
-    video.controls = true; video.playsInline = true; video.preload = 'metadata'; video.src = url;
+    video.controls = true; video.playsInline = true; video.preload = 'metadata';
     video.setAttribute('aria-label', '知识点视频讲解'); video.addEventListener('play', stopSpeech);
     const caption = document.createElement('figcaption'); caption.textContent = '用画面再理解一遍';
-    figure.append(video, caption); message.append(figure);
+    const download = document.createElement('a'); download.className = 'video-download secondary';
+    const target = new URL(url, location.origin); target.searchParams.set('download', '1');
+    download.href = target.href; download.download = '小直视频.mp4'; download.textContent = '下载视频';
+    if (onPreview) {
+      const preview = document.createElement('button'); preview.type = 'button'; preview.className = 'generated-media-link'; preview.textContent = '查看视频 ↗';
+      preview.onclick = () => onPreview(url); figure.append(preview, download);
+    } else { video.src = url; figure.append(video, caption, download); }
+    message.append(figure); onMediaReady();
   }
   function attach(message, saved, sessionId, index) {
     if (saved.role !== 'assistant' || saved.kind || saved.status === 'error' || !Number.isInteger(index)) return;
@@ -30,7 +37,7 @@ export function createVideoUI({ api, getState, stopSpeech }) {
     function finish(url) {
       button.disabled = false; button.title = '查看视频'; button.setAttribute('aria-label', '查看视频');
       message.querySelector('.video-generation-status')?.remove(); renderVideo(message, url);
-      button.onclick = () => message.querySelector('video')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      button.onclick = () => onPreview ? onPreview(url) : message.querySelector('video')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
     async function watch() {
       if (watching) return;

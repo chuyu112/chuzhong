@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadModelEnvironment } from '../server/config.mjs';
+import { loadModelEnvironment, availableModels } from '../server/config.mjs';
+
+test('Grok is excluded from the application even when its shared provider is configured', () => {
+ const models = availableModels({ JIEKOU_API_KEY: 'test-only', DEEPSEEK_API_KEY: 'test-only' });
+ assert.equal(models.some(model => /grok/i.test(model.id + model.label)), false);
+ assert.ok(models.find(model => model.id === 'deepseek-v4-flash')?.configured);
+ assert.ok(models.find(model => model.id === 'gemini-3.8-flash')?.configured, 'keep other models on the shared provider');
+});
 
 test('speech credentials stay out of model-provider configuration', async () => {
  const dir = await mkdtemp(join(tmpdir(), 'zhixu-model-env-'));

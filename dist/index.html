@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#faf8f4"><title>知序 · 一起把问题想明白</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#faf8f4"><title>小直 · 一起把问题想明白</title>
 <script>if(location.protocol==='file:')location.replace('http://127.0.0.1:3018/');</script>
-<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/vendor/katex/katex.min.css"><script type="module" src="/app.js"></script>
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/media-preview.css"><link rel="stylesheet" href="/vendor/katex/katex.min.css"><script type="module" src="/app.js"></script>
 </head>
 <body>
 <svg class="icon-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
@@ -29,8 +29,8 @@
 <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></symbol>
 </defs></svg>
 <aside class="sidebar">
-<a class="brand" href="/" aria-label="知序首页"><span class="brand-mark"><svg class="icon"><use href="#i-book"/></svg><i></i></span><span>知序<small>陪你学会每一步</small></span></a>
-<button class="sidebar-new" id="new-chat" type="button"><svg class="icon"><use href="#i-chat"/></svg>新对话<span>＋</span></button><div class="nav-label">学习空间</div>
+<a class="brand" href="/" aria-label="小直首页"><span class="brand-mark"><svg class="icon"><use href="#i-book"/></svg><i></i></span><span>小直<small>陪你学会每一步</small></span></a>
+<button class="sidebar-new" id="new-chat" type="button"><svg class="icon"><use href="#i-chat"/></svg>新对话<span>＋</span></button><div class="nav-label">功能清单</div>
 <nav class="bottom-nav" aria-label="主要导航">
 <button class="active" data-page="tutor"><svg class="icon"><use href="#i-chat"/></svg><span>问问小直</span></button>
 <button data-page="library" hidden><svg class="icon"><use href="#i-book"/></svg><span>我的真题库</span><span class="nav-count" id="nav-paper-count">—</span></button>
@@ -41,6 +41,14 @@
 <div class="workspace"><header class="top"><button id="nav-toggle" class="nav-toggle" type="button" aria-label="打开导航" aria-expanded="false">☰</button><div class="breadcrumb">我的学习空间 <span>/</span> <strong id="current-page-label">问问小直</strong></div><div class="top-right"><span id="today-date"></span><span class="student-avatar" id="student-avatar">同</span><button class="account-trigger" id="account-open" type="button">我的账号</button></div></header>
 <main id="main">
 <section id="tutor" class="page active chat-home" aria-label="和小直聊天">
+<div class="workspace-tabs" aria-label="切换工作区"><button type="button" data-workspace-pane="chat" aria-pressed="true">聊天</button><button type="button" data-workspace-pane="preview" aria-pressed="false">图片与视频</button></div>
+<section class="media-preview" aria-label="图片和视频预览区">
+<header class="media-preview-header"><div><h2>图片与视频</h2><p>以前生成的作品，随时回看</p></div><button type="button" id="media-refresh" class="secondary">刷新</button></header>
+<div id="media-stage" class="media-stage"></div>
+<div class="media-preview-caption"><strong id="media-selected-title">预览区</strong><a id="media-download" class="secondary" hidden>下载</a></div>
+<div class="media-library-header"><div class="media-filters" aria-label="作品类型"><button type="button" data-media-filter="all" aria-pressed="true">全部</button><button type="button" data-media-filter="image" aria-pressed="false">图片</button><button type="button" data-media-filter="video" aria-pressed="false">视频</button></div><span id="media-library-status" role="status">正在加载历史作品…</span></div>
+<div id="media-list" class="media-list" aria-label="历史作品"></div>
+</section>
 <div class="chat-workspace"><header class="chat-header"><div class="agent-identity"><strong>小直</strong><small><span class="online-dot"></span>学习 Agent</small></div><details class="tutor-settings"><summary><span id="selected-model-label">选择模型</span><svg class="icon"><use href="#i-settings"/></svg></summary><div><label>讲解模型<select id="model-select" aria-label="讲解模型"></select></label><span id="model-status" class="muted"></span><button class="text-button" id="open-review" type="button">核对我尝试的解答</button><button class="text-button" id="open-media" type="button">生成图解提示词</button></div></details><button class="new-chat-small" id="new-chat-header" type="button" aria-label="新对话">新对话</button></header>
 <div id="messages" class="messages" aria-live="polite"></div>
 <div class="composer-wrap"><p id="chat-queue-status" class="chat-queue-status" hidden role="status"></p><form id="chat-form" class="composer"><div id="photo-preview" hidden></div><textarea id="chat-input" aria-label="你的问题" placeholder="问什么都可以，也能上传作业、错题…" rows="2" maxlength="12000"></textarea><div class="composer-actions"><div class="attachment-actions"><button type="button" class="photo-button" id="camera-chat"><svg class="icon"><use href="#i-camera"/></svg><span>拍照</span></button><button type="button" class="photo-button" id="photo-chat" title="一条消息可一次上传多张图片，最多 9 张"><span class="attach-plus">＋</span><span>上传图片</span></button></div><button class="primary" id="send-chat" aria-label="发送">发送 <svg class="icon"><use href="#i-arrow"/></svg></button></div></form><p class="hint-line" id="chat-note">作业、错题可以连续拍照，或一次选择多张，一起把思路弄明白。</p></div></div>
@@ -56,7 +64,7 @@
 <div class="parent-layout"><div class="parent-sessions"><h2>学习对话</h2><div id="family-sessions"></div></div><article class="parent-conversation"><h2 id="family-conversation-title">选择一段对话</h2><div id="family-messages" class="parent-messages"><p class="empty">选择左侧的对话，查看完整记录。</p></div></article></div>
 <details class="card family-evidence"><summary>知识点记录与作答依据</summary><div id="family-evidence"></div><p class="muted">求助次数不等于薄弱程度。强项和弱项只依据已有作答记录，证据不足时不下结论。</p></details>
 </section>
-</main><footer class="workspace-footer"><svg class="icon"><use href="#i-leaf"/></svg>每一步，都是自己的进步。<span>知序 · 家庭学习空间</span></footer></div>
+</main><footer class="workspace-footer"><svg class="icon"><use href="#i-leaf"/></svg>每一步，都是自己的进步。<span>小直 · 家庭学习空间</span></footer></div>
 <input id="photo-input" type="file" accept="image/*" multiple hidden>
 <input id="camera-input" type="file" accept="image/*" capture="environment" hidden>
 <dialog id="camera-dialog"><div class="section-title"><h2>拍下题目</h2><button type="button" class="close" id="camera-close" aria-label="关闭相机">×</button></div><video id="camera-video" autoplay playsinline muted></video><p class="muted">把题目放进画面，确认文字清楚后拍照。</p><button class="primary" id="camera-capture" type="button">拍照，放入聊天</button></dialog>

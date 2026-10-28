@@ -10,7 +10,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 
-test('video appears last, survives reload, streams ranges and respects student/family access', { timeout: 45000 }, async () => {
+test('video opens in the preview, survives reload, streams ranges and respects student/family access', { timeout: 45000 }, async () => {
   const root = fileURLToPath(new URL('..', import.meta.url)), directory = await mkdtemp(path.join(tmpdir(), 'zhixu-video-delivery-'));
   const child = spawn(process.execPath, ['server/index.mjs'], { cwd: root, env: { ...process.env, EDU_DATA_DIR: directory, EDU_PORT: '0', EDU_COOKIE_SECURE: 'false', LIBTV_VIDEO_ENABLED: 'true', LIBTV_CLI_PATH: '/nonexistent-test-cli', FLOVA_IMAGE_PROJECT_ID: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let browser, db;
@@ -50,12 +50,12 @@ test('video appears last, survives reload, streams ranges and respects student/f
     await page.locator('#chat-input').fill('/视频生成'); await page.locator('#send-chat').click();
     await page.locator('.video-generation-status').waitFor(); assert.equal(await page.locator('#send-chat').isEnabled(), true);
     session.messages[3].videoJob.status = 'completed'; session.messages[3].generatedVideoRef = { filename, mimeType: 'video/mp4' }; save(); release();
-    const video = page.locator('.learning-video video'); await video.waitFor();
-    await page.waitForFunction(() => document.querySelector('.learning-video video')?.readyState >= 1);
+    const video = page.locator('#media-stage video'); await page.locator('.learning-video .generated-media-link').click(); await video.waitFor();
+    await page.waitForFunction(() => document.querySelector('#media-stage video')?.readyState >= 1);
     assert.equal(await video.getAttribute('playsinline'), '');
     assert.equal(await page.locator('.message.assistant').last().evaluate(el => el.lastElementChild.classList.contains('learning-video')), true);
-    await page.reload(); await video.waitFor(); assert.equal(creates, 1);
-    assert.equal(await page.locator('.learning-video video').count(), 1);
+    await page.reload(); await page.locator('.learning-video .generated-media-link').click(); await video.waitFor(); assert.equal(creates, 1);
+    assert.equal(await page.locator('#media-stage video').count(), 1);
     await page.screenshot({ path: path.join(root, 'artifacts/video-delivery-mobile.png') });
     await page.setViewportSize({ width: 1440, height: 900 }); await page.screenshot({ path: path.join(root, 'artifacts/video-delivery-desktop.png') });
     const url = base + '/api/sessions/video-lesson/videos/3';

@@ -1,3 +1,4 @@
+import { mediaLibrary } from './media-library.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
 import { resolve, extname, dirname } from 'node:path';
@@ -122,6 +123,7 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/api/config')return send(res,200,{backend:true,models,defaultModel:models.find(m=>m.id==='glm-5.3-flash'&&m.configured)?.id||models.find(m=>m.configured)?.id||'glm-5.3-flash',piVersion,mediaGeneration:imageGeneration.configured,imageModel:imageGeneration.configured?imageGeneration.model:null,videoGeneration:videoGeneration.configured&&canGenerateVideo(user.id),longTermMemory:true});
   if(url.pathname==='/api/learning'&&req.method==='GET'){const learning=get('learning',{});return send(res,200,{...learning,questions:learning.questions.map(publicQuestion)});}
   if(url.pathname==='/api/memory'&&req.method==='GET')return send(res,200,memory());
+  if(url.pathname==='/api/media'&&req.method==='GET')return send(res,200,{items:mediaLibrary(db,user.id)});
   if(url.pathname==='/api/sessions'&&req.method==='GET'){
    return send(res,200,{sessions:sessionList(db,user.id)});
   }

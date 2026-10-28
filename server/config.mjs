@@ -20,7 +20,8 @@ export function loadModelEnvironment(source = process.env.CUIYI_SOURCE_DIR || re
 }
 
 export function availableModels(environment) {
-  return textModels.map(({ id, label }) => {
+  // This is the application's allowed list, shared by the selector and chat API.
+  return textModels.filter(({ id }) => !id.startsWith('grok-')).map(({ id, label }) => {
     const internalId = resolveTextModel(id);
     const provider = providerConfig(internalId, environment);
     return { id, label, configured: Boolean(provider?.key && provider?.url), vision: textModelSupportsDirectImageInput(internalId) };
