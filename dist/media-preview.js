@@ -2,13 +2,6 @@ export function createMediaPreview({ api, stopSpeech, isSignedIn }) {
   const $ = id => document.getElementById(id);
   let items = [], selected = null, filter = 'all', loading = false, refreshTimer;
   const stage = $('media-stage'), list = $('media-list'), status = $('media-library-status');
-  const thumbnails = new IntersectionObserver(entries => {
-    for (const entry of entries) if (entry.isIntersecting) {
-      const video = entry.target;
-      video.preload = 'metadata'; video.src = video.dataset.src;
-      thumbnails.unobserve(video);
-    }
-  }, { root: list, rootMargin: '80px' });
   const make = (tag, className, text) => {
     const el = document.createElement(tag);
     el.className = className;
@@ -31,15 +24,17 @@ export function createMediaPreview({ api, stopSpeech, isSignedIn }) {
     if (name === 'chat' && matchMedia('(max-width:1100px)').matches) stage.querySelector('video')?.pause();
   }
   document.querySelectorAll('[data-workspace-pane]').forEach(button => button.onclick = () => pane(button.dataset.workspacePane));
-  function select(item) {
+  function select(item, { loadVideo = false } = {}) {
     if (selected?.url !== item?.url) {
-      stage.querySelector('video')?.pause();
+      const previous = stage.querySelector('video');
+      if (previous) { previous.pause(); previous.removeAttribute('src'); previous.load(); }
       stage.replaceChildren();
       stage.dataset.mediaType = item?.type || 'empty';
       if (item) {
         const media = make(item.type === 'video' ? 'video' : 'img', 'preview-media');
         if (item.type === 'video') {
-          media.controls = true; media.playsInline = true; media.preload = 'metadata';
+          // A history list must not download videos before the user chooses one.
+          media.controls = true; media.playsInline = true; media.preload = 'none';
           media.setAttribute('aria-label', item.title); media.addEventListener('play', stopSpeech);
         } else media.alt = item.title;
         media.addEventListener('error', () => {
@@ -53,6 +48,8 @@ export function createMediaPreview({ api, stopSpeech, isSignedIn }) {
       }
     }
     selected = item;
+    const player = stage.querySelector('video');
+    if (loadVideo && player?.preload === 'none') { player.preload = 'metadata'; player.load(); }
     $('media-selected-title').textContent = item?.title || '预览区';
     $('media-download').hidden = !item;
     if (item) {
@@ -63,9 +60,8 @@ export function createMediaPreview({ api, stopSpeech, isSignedIn }) {
     }
     list.querySelectorAll('[data-media-id]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mediaId === item?.id)));
   }
-  function renderList() {
+  function renderList({ loadVideo = false } = {}) {
     const visible = items.filter(item => filter === 'all' || item.type === filter);
-    thumbnails.disconnect();
     list.replaceChildren();
     status.textContent = items.length ? `${items.length} 份作品` : '还没有作品';
     for (const item of visible) {
@@ -75,21 +71,17 @@ export function createMediaPreview({ api, stopSpeech, isSignedIn }) {
       if (item.type === 'image') {
         const image = make('img', 'media-thumbnail'); image.src = item.url; image.alt = ''; image.loading = 'lazy'; visual.append(image);
       } else {
-        const video = make('video', 'media-thumbnail'); video.muted = true; video.playsInline = true;
-        video.preload = 'none'; video.dataset.src = item.url; video.tabIndex = -1; video.setAttribute('aria-hidden', 'true');
-        video.addEventListener('loadedmetadata', () => { if (Number.isFinite(video.duration) && video.duration > 0) video.currentTime = Math.min(.2, video.duration / 2); }, { once: true });
-        const play = make('span', 'media-video-play'); play.append(icon('video')); visual.append(video, play);
-        thumbnails.observe(video);
+        const play = make('span', 'media-video-play'); play.append(icon('video')); visual.append(play);
       }
       const badge = make('span', 'media-type-badge'); badge.append(icon(item.type), document.createTextNode(item.type === 'video' ? '视频' : '图片')); visual.append(badge);
       const info = make('span', 'media-card-info');
       info.append(make('strong', '', item.title));
       const date = new Date(item.createdAt);
       info.append(make('small', '', Number.isNaN(date.getTime()) ? '学习作品' : date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })));
-      button.append(visual, info); button.onclick = () => select(item); list.append(button);
+      button.append(visual, info); button.onclick = () => select(item, { loadVideo: true }); list.append(button);
     }
     if (!visible.length && items.length) list.append(make('p', 'media-filter-empty', filter === 'video' ? '还没有生成的视频' : '还没有生成的图片'));
-    select(visible.find(item => item.id === selected?.id) || visible[0] || null);
+    select(visible.find(item => item.id === selected?.id) || visible[0] || null, { loadVideo });
   }
   async function refresh() {
     if (loading || !isSignedIn()) return;
@@ -107,13 +99,13 @@ export function createMediaPreview({ api, stopSpeech, isSignedIn }) {
     filter = 'all'; updateFilters(); renderList();
     await refresh();
     const item = items.find(item => new URL(item.url, location.origin).pathname === new URL(url, location.origin).pathname);
-    if (item) select(item);
+    if (item) select(item, { loadVideo: true });
     pane('preview');
   }
   function updateFilters() {
     document.querySelectorAll('[data-media-filter]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mediaFilter === filter)));
   }
-  document.querySelectorAll('[data-media-filter]').forEach(button => button.onclick = () => { filter = button.dataset.mediaFilter; updateFilters(); renderList(); });
+  document.querySelectorAll('[data-media-filter]').forEach(button => button.onclick = () => { filter = button.dataset.mediaFilter; updateFilters(); renderList({ loadVideo: true }); });
   $('media-refresh').onclick = refresh;
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); else stage.querySelector('video')?.pause(); });
   setInterval(() => { if (!document.hidden) void refresh(); }, 30000);

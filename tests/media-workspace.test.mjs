@@ -23,7 +23,8 @@ test('historical creations open in the center, stay private, and remain usable o
     db = new DatabaseSync(path.join(directory, 'education.sqlite'));
     browser = await chromium.launch({ channel: 'chrome', headless: true });
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    const page = await context.newPage(), errors = [];
+    const page = await context.newPage(), errors = [], videoRequests = [];
+    page.on('request', request => { if (/\/api\/sessions\/[^/]+\/videos\//.test(request.url())) videoRequests.push(request.url()); });
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(url);
     assert.equal((await page.request.get(url + '/api/media')).status(), 401);
@@ -52,6 +53,9 @@ test('historical creations open in the center, stay private, and remain usable o
     save(user.id, 'old-video', [{ role: 'user', content: '英语情景对话：先正常语速，再慢速讲解', at: '2026-10-24T00:00:00Z' }, { role: 'assistant', content: '视频已完成。', at: '2026-10-24T00:01:00Z', generatedVideoRef: { filename: videoHash, mimeType: 'video/mp4' } }]);
     save('other-user', 'secret', [{ role: 'assistant', content: 'other account', generatedImageRef: { filename: imageHash, mimeType: 'image/png' } }]);
     await page.reload(); await page.locator('.media-card').nth(1).waitFor();
+    await page.waitForLoadState('networkidle');
+    assert.equal(videoRequests.length, 0, 'opening history must not preload video files');
+    assert.equal(await page.locator('.media-card video').count(), 0, 'history cards must not create background video players');
     assert.equal(await page.locator('.media-card').count(), 2);
     assert.equal(await page.locator('.brand').innerText(), '小直\n陪你学会每一步');
     const items = (await (await page.request.get(url + '/api/media')).json()).items;

@@ -1,12 +1,17 @@
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, statSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export function sendSessionVideo(req, res, send, data, userId, session, index) {
   const ref = session?.messages?.[index]?.generatedVideoRef;
+  const download = new URL(req.url, 'http://localhost').searchParams.get('download') === '1';
   if (!ref || ref.mimeType !== 'video/mp4' || !/^[a-f0-9]{64}$/.test(ref.filename)) return send(res, 404, { error: '视频不存在' });
-  const file = resolve(data, 'videos', userId, ref.filename);
+  // Optional, prebuilt streaming copies leave the original available for downloads.
+  const original = resolve(data, 'videos', userId, ref.filename);
+  const streaming = resolve(data, 'video-playback', userId, `${ref.filename}.mp4`);
+  const file = !download && existsSync(streaming) ? streaming : original;
   let size; try { size = statSync(file).size; } catch { return send(res, 404, { error: '视频不存在' }); }
   const headers = { 'content-type': 'video/mp4', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes' };
+  if (download) headers['content-disposition'] = 'attachment; filename="xiaozhi-video.mp4"';
   let start = 0, end = size - 1, status = 200;
   if (req.headers.range) {
     const match = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range);
